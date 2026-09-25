@@ -4,7 +4,21 @@ A CI/CD automation system that debugs flaky-based deployments.
 External system that relies on Github Actions. 
 The goal of the system is to determine if the failure is a flaky-based error. 
 If it is not then call Bob for fixing instantly. 
-Else run through check test for possible root causes in the Git Diffs then Modularity of the feature. 
+Else run through check test for possible root causes in the Git Diffs then Modularity of the feature.
+
+## Todo
+- [ ] Handle deploy.yml
+- [ ] Endpoint utk dihit + callback
+- [ ] LangGraph
+- [ ] Agent + Tools
+
+## Submission
+- [ ] Short Description
+- [ ] Long Description
+- [ ] IBM Bob Usage Statement
+- [ ] Video presentation
+- [ ] Slide presentation
+- [ ] Cover image
 
 ## Flow (Mermaid)
 flowchart TD
