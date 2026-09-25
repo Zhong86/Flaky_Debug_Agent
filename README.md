@@ -10,7 +10,9 @@ Else run through check test for possible root causes in the Git Diffs then Modul
 - [ ] Handle deploy.yml
 - [ ] Endpoint utk dihit + callback
 - [ ] LangGraph
+- [ ] Monitoring dashboard
 - [ ] Agent + Tools
+
 
 ## Submission
 - [ ] Short Description
@@ -67,4 +69,3 @@ flowchart TD
     CheckPass -- Tidak --> Selesai
     CheckPass -- Ya --> OutputData
     OutputData --> Selesai
-`
