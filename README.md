@@ -21,6 +21,7 @@ Else run through check test for possible root causes in the Git Diffs then Modul
 - [ ] Cover image
 
 ## Flow (Mermaid)
+```mermaid
 flowchart TD
     Start([Mulai])
     Selesai([Selesai])
@@ -66,3 +67,4 @@ flowchart TD
     CheckPass -- Tidak --> Selesai
     CheckPass -- Ya --> OutputData
     OutputData --> Selesai
+`
