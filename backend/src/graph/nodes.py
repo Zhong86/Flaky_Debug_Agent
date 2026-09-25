@@ -1,4 +1,6 @@
 import os
+import subprocess
+import tempfile
 from datetime import datetime
 from pathlib import Path
 
@@ -10,15 +12,39 @@ _PROJECT_ROOT = Path(__file__).parents[3]
 
 
 def check_flaky(state: GraphState) -> dict:
-    print("[check_flaky] Running flakiness check (stub)...")
-    # Hardcoded for development — real pytest-flaky call goes here
-    is_flaky = True
-    print(f"[check_flaky] is_flaky={is_flaky}")
+    results = state["rerun_results"]
+    # flaky = failed at least once AND passed at least once across identical reruns
+    is_flaky = any(0 < r["passed"] < r["attempts"] for r in results)
     return {"is_flaky": is_flaky}
+
+
+def clone_repo(state: GraphState) -> dict:
+    print("[clone_repo] Cloning repository for debug agent...")
+    repository = state["github_payload"].get("repository")
+    branch = state["github_payload"].get("branch")
+
+    dest = tempfile.mkdtemp(prefix="flaky-debug-")
+    # Public HTTPS clone for now — private repos will need the GitHub App's
+    # installation token in the URL (x-access-token:<token>@github.com/...).
+    repo_url = f"https://github.com/{repository}.git"
+
+    cmd = ["git", "clone", "--depth", "1"]
+    if branch:
+        cmd += ["--branch", branch]
+    cmd += [repo_url, dest]
+
+    try:
+        subprocess.run(cmd, check=True, capture_output=True, text=True)
+        print(f"[clone_repo] Cloned {repository} -> {dest}")
+        return {"repo_path": dest}
+    except subprocess.CalledProcessError as e:
+        print(f"[clone_repo] Clone failed: {e.stderr}")
+        return {"repo_path": ""}
 
 
 def debug_agent(state: GraphState) -> dict:
     print("[debug_agent] Running multi-agent debug system (stub)...")
+    print(f"[debug_agent] Reading checkout at {state.get('repo_path', 'N/A')}")
     findings = (
         "STUB: Root cause identified as a race condition in the test setup "
         "due to shared mutable state between test cases."
