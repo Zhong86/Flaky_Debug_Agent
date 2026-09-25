@@ -25,47 +25,34 @@ Else run through check test for possible root causes in the Git Diffs then Modul
 ## Flow (Mermaid)
 ```mermaid
 flowchart TD
-    Start([Mulai])
-    Selesai([Selesai])
+    Start([Start])
+    End([End])
 
-    InputData[/Input: Terima Payload GitHub & Log/]
-    OutputData[/Output: buat Docs dan taruh di codebasenya./]
+    InputData[/Input: Receive GitHub Payload & Logs/]
+    OutputData[/Output: Generate Docs and place them in the codebase/]
 
-    CheckFail{Apakah CI\nGagal?}
-    Test100x[Jalankan Parallel Test Ulang 10x di Sandbox dengan pytest]
-    CheckFlaky{Apakah Test\nFlaky?}
-    ReadMode[READ Mode dari Agent untuk cari akar masalah]
-    FilterDiff[Filter Git Diff mencari fungsi Async]
-    CheckRoot1{Apakah akar masalah ketemu?}
-    EkstrakAST[Ekstrak Struktur Kodingan AST]
-    CheckRoot2{Apakah akar masalah ketemu?}
+    CheckFail{Did CI\nFail?}
+    Test100x[Run Parallel Retest 10x in Sandbox with pytest]
+    CheckFlaky{Is the Test\nFlaky?}
+    MultiAgent[Multi-Agent System]
     CodeFixing[Code Fixing]
     Retest10x[Retest 10x]
-    CheckPass{Apakah Pass\n100%?}
+    CheckPass{Does it Pass\n100%?}
 
     Start --> InputData
     InputData --> CheckFail
 
-    CheckFail -- Tidak --> Selesai
-    CheckFail -- Ya --> Test100x
+    CheckFail -- No --> End
+    CheckFail -- Yes --> Test100x
 
     Test100x --> CheckFlaky
-    CheckFlaky -- Tidak --> Selesai
-    CheckFlaky -- Ya --> ReadMode
+    CheckFlaky -- No --> End
+    CheckFlaky -- Yes --> MultiAgent
 
-    ReadMode --> FilterDiff
-    FilterDiff --> CheckRoot1
-
-    CheckRoot1 -- Yes --> CodeFixing
-    CheckRoot1 -- No --> EkstrakAST
-
-    EkstrakAST --> CheckRoot2
-    CheckRoot2 -- Yes --> CodeFixing
-    CheckRoot2 -- No --> Selesai
-
+    MultiAgent --> CodeFixing
     CodeFixing --> Retest10x
     Retest10x --> CheckPass
 
-    CheckPass -- Tidak --> Selesai
-    CheckPass -- Ya --> OutputData
-    OutputData --> Selesai
+    CheckPass -- No --> End
+    CheckPass -- Yes --> OutputData
+    OutputData --> End

@@ -1,8 +1,8 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.api.router import api_router
-from backend.core.config import get_settings
+from api.router import api_router
+from core.config import get_settings
 
 
 def create_app() -> FastAPI:
@@ -27,4 +27,4 @@ app = create_app()
 def main() -> None:
     import uvicorn
 
-    uvicorn.run("backend.main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
