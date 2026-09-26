@@ -13,3 +13,6 @@ out/
 # Env
 .env
 .env.local
+
+# Generated run output
+flaky_debug/

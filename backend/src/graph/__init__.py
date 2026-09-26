@@ -1,4 +1,4 @@
-from graph.graph import graph
+from graph.graph import compile_graph, graph
 from graph.state import GraphState
 
-__all__ = ["graph", "GraphState"]
+__all__ = ["graph", "compile_graph", "GraphState"]
