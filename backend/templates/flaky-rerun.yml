@@ -4,9 +4,11 @@
 # triggered by push/PR; only by workflow_dispatch, so it never runs unless we
 # explicitly ask for it. Must live on the default branch: phase A dispatches there.
 #
-# MVP scope: pytest only. A real multi-language setup swaps the "Install
-# dependencies" / "Rerun targeted tests" steps per repo (setup-node + jest,
-# setup-go + gotestsum, etc.) — see the framework input.
+# One rerun step per framework input, matching what services/junit.py can parse
+# (see backend/tests/fixtures/junit): pytest, jest, vitest, go (gotestsum), rspec,
+# dotnet and maven (Surefire). Each step installs its own toolchain and writes
+# whatever JUnit XML it produces into ./rerun-output/ — the upload step at the
+# bottom is framework-agnostic and just globs that directory.
 name: Flaky Rerun
 # The backend reads this back (services/github_dispatch.py:parse_rerun_title) to
 # find the run it dispatched and to tell first reruns ("detect", analysed by the
@@ -21,12 +23,21 @@ on:
         description: "Exact commit to check out and test"
         required: true
       test_ids:
-        description: 'JSON array of failing pytest node IDs, e.g. ["tests/test_x.py::test_y"]'
+        description: 'JSON array of failing test IDs, e.g. ["tests/test_x.py::test_y"]'
         required: true
       framework:
-        description: "Test framework (currently only pytest is wired up)"
+        description: "Test framework"
         required: true
         default: "pytest"
+        type: choice
+        options:
+          - pytest
+          - jest
+          - vitest
+          - go
+          - rspec
+          - dotnet
+          - maven
       attempts:
         description: "How many isolated reruns to attempt"
         required: false
@@ -65,19 +76,25 @@ jobs:
         with:
           ref: ${{ inputs.sha }}
 
+      - name: Make the report output dir
+        run: mkdir -p rerun-output
+
+      # ---- pytest (Python) ----------------------------------------------
       - uses: actions/setup-python@v7
+        if: inputs.framework == 'pytest'
         with:
           python-version: "3.x"
 
-      - name: Install dependencies
+      - name: Install dependencies (pytest)
+        if: inputs.framework == 'pytest'
         run: pip install -r requirements.txt
 
-      - name: Rerun targeted tests
+      - name: Rerun targeted tests (pytest)
+        if: inputs.framework == 'pytest'
         # Inputs arrive through env, never spliced into the script text, so a
         # crafted test ID can't break out of the Python below.
         env:
           TEST_IDS: ${{ inputs.test_ids }}
-          ATTEMPT: ${{ matrix.attempt }}
         run: |
           python - <<'PYEOF'
           import json, os, subprocess, sys
@@ -87,16 +104,206 @@ jobs:
               "pytest", *test_ids,
               # xunit1 records each test's file, so the backend gets exact node IDs.
               "-o", "junit_family=xunit1",
-              f"--junitxml=rerun-{os.environ['ATTEMPT']}.xml",
+              "--junitxml=rerun-output/report.xml",
           ])
           sys.exit(result.returncode)
           PYEOF
-        # A failing attempt is data we want, not a broken job — don't let it
-        # block the artifact upload below.
         continue-on-error: true
+
+      # ---- jest (Node.js) -------------------------------------------------
+      - uses: actions/setup-node@v5
+        if: inputs.framework == 'jest' || inputs.framework == 'vitest'
+        with:
+          node-version: "22"
+
+      - name: Install dependencies (node)
+        if: inputs.framework == 'jest' || inputs.framework == 'vitest'
+        run: npm ci
+
+      - name: Rerun targeted tests (jest)
+        if: inputs.framework == 'jest'
+        # Test IDs are "classname::name" — jest has no notion of node IDs, so we
+        # fall back to matching the test's full name. Requires jest-junit installed
+        # and configured as a reporter in the target repo.
+        env:
+          TEST_IDS: ${{ inputs.test_ids }}
+        run: |
+          python - <<'PYEOF'
+          import json, os, re, subprocess, sys
+
+          test_ids = json.loads(os.environ["TEST_IDS"])
+          names = [t.split("::", 1)[-1] for t in test_ids]
+          pattern = "|".join(re.escape(n) for n in names)
+
+          env = dict(os.environ)
+          env["JEST_JUNIT_OUTPUT_DIR"] = "rerun-output"
+          env["JEST_JUNIT_OUTPUT_NAME"] = "report.xml"
+          result = subprocess.run(
+              ["npx", "jest", "--reporters=default", "--reporters=jest-junit", "-t", pattern],
+              env=env,
+          )
+          sys.exit(result.returncode)
+          PYEOF
+        continue-on-error: true
+
+      # ---- vitest (Node.js) -----------------------------------------------
+      - name: Rerun targeted tests (vitest)
+        if: inputs.framework == 'vitest'
+        # Test IDs are "file::name"; vitest can select by file plus -t pattern.
+        env:
+          TEST_IDS: ${{ inputs.test_ids }}
+        run: |
+          python - <<'PYEOF'
+          import json, os, re, subprocess, sys
+
+          test_ids = json.loads(os.environ["TEST_IDS"])
+          files = sorted({t.split("::", 1)[0] for t in test_ids})
+          names = [t.split("::", 1)[1] for t in test_ids if "::" in t]
+          pattern = "|".join(re.escape(n) for n in names)
+
+          result = subprocess.run([
+              "npx", "vitest", "run", *files,
+              "-t", pattern,
+              "--reporter=junit",
+              "--outputFile=rerun-output/report.xml",
+          ])
+          sys.exit(result.returncode)
+          PYEOF
+        continue-on-error: true
+
+      # ---- go (gotestsum) ---------------------------------------------------
+      - uses: actions/setup-go@v6
+        if: inputs.framework == 'go'
+        with:
+          go-version: "stable"
+
+      - name: Install gotestsum
+        if: inputs.framework == 'go'
+        run: go install gotest.tools/gotestsum@latest
+
+      - name: Rerun targeted tests (go)
+        if: inputs.framework == 'go'
+        # Test IDs are "package::TestName"; -run matches by function name only,
+        # so the package half just narrows scope isn't needed — run the whole
+        # module. -count=1 disables `go test`'s result cache so reruns actually
+        # re-execute instead of replaying a cached pass/fail.
+        env:
+          TEST_IDS: ${{ inputs.test_ids }}
+        run: |
+          python - <<'PYEOF'
+          import json, os, re, subprocess, sys
+
+          test_ids = json.loads(os.environ["TEST_IDS"])
+          names = [t.split("::", 1)[-1] for t in test_ids]
+          pattern = "^(" + "|".join(re.escape(n) for n in names) + ")$"
+
+          result = subprocess.run([
+              "gotestsum", "--junitfile=rerun-output/report.xml", "--",
+              "-run", pattern, "-count=1", "./...",
+          ])
+          sys.exit(result.returncode)
+          PYEOF
+        continue-on-error: true
+
+      # ---- rspec (Ruby) -----------------------------------------------------
+      - uses: ruby/setup-ruby@v1
+        if: inputs.framework == 'rspec'
+        with:
+          bundler-cache: true
+
+      - name: Rerun targeted tests (rspec)
+        if: inputs.framework == 'rspec'
+        # Test IDs are "spec.path.dotted::description"; rspec_junit_formatter
+        # must be in the target repo's Gemfile.
+        env:
+          TEST_IDS: ${{ inputs.test_ids }}
+        run: |
+          python - <<'PYEOF'
+          import json, os, subprocess, sys
+
+          test_ids = json.loads(os.environ["TEST_IDS"])
+          files = sorted({t.split("::", 1)[0].replace(".", "/") + ".rb" for t in test_ids})
+          selectors = []
+          for t in test_ids:
+              selectors += ["-e", t.split("::", 1)[-1]]
+
+          result = subprocess.run([
+              "bundle", "exec", "rspec", *files, *selectors,
+              "--format", "RspecJunitFormatter", "--out", "rerun-output/report.xml",
+          ])
+          sys.exit(result.returncode)
+          PYEOF
+        continue-on-error: true
+
+      # ---- dotnet (.NET) ----------------------------------------------------
+      - uses: actions/setup-dotnet@v5
+        if: inputs.framework == 'dotnet'
+        with:
+          dotnet-version: "8.x"
+
+      - name: Restore dependencies (dotnet)
+        if: inputs.framework == 'dotnet'
+        run: dotnet restore
+
+      - name: Rerun targeted tests (dotnet)
+        if: inputs.framework == 'dotnet'
+        # Test IDs are "Namespace.Class::Method"; JunitXml.TestLogger must be
+        # referenced by the target repo's test project.
+        env:
+          TEST_IDS: ${{ inputs.test_ids }}
+        run: |
+          python - <<'PYEOF'
+          import json, os, subprocess, sys
+
+          test_ids = json.loads(os.environ["TEST_IDS"])
+          names = [t.replace("::", ".") for t in test_ids]
+          filter_expr = "|".join(f"FullyQualifiedName={n}" for n in names)
+
+          result = subprocess.run([
+              "dotnet", "test", "--filter", filter_expr,
+              "--logger", "junit;LogFilePath=../rerun-output/report.xml",
+          ])
+          sys.exit(result.returncode)
+          PYEOF
+        continue-on-error: true
+
+      # ---- maven / Surefire (Java) --------------------------------------
+      - uses: actions/setup-java@v5
+        if: inputs.framework == 'maven'
+        with:
+          distribution: "temurin"
+          java-version: "21"
+
+      - name: Rerun targeted tests (maven)
+        if: inputs.framework == 'maven'
+        # Test IDs are "fully.qualified.ClassName::method"; Surefire's -Dtest
+        # selector wants the short class name.
+        env:
+          TEST_IDS: ${{ inputs.test_ids }}
+        run: |
+          python - <<'PYEOF'
+          import json, os, subprocess, sys
+
+          test_ids = json.loads(os.environ["TEST_IDS"])
+          specs = []
+          for t in test_ids:
+              classname, _, name = t.partition("::")
+              specs.append(f"{classname.rsplit('.', 1)[-1]}#{name}")
+
+          result = subprocess.run([
+              "mvn", "-B", f"-Dtest={'+'.join(specs)}", "-DfailIfNoTests=false", "test",
+          ])
+          sys.exit(result.returncode)
+          PYEOF
+        continue-on-error: true
+
+      - name: Collect Surefire reports
+        if: inputs.framework == 'maven'
+        run: cp target/surefire-reports/*.xml rerun-output/ 2>/dev/null || true
 
       - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: rerun-attempt-${{ matrix.attempt }}
-          path: rerun-${{ matrix.attempt }}.xml
+          path: rerun-output/*.xml
+          if-no-files-found: warn

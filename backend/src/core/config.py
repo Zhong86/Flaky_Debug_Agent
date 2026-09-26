@@ -1,7 +1,7 @@
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import SecretStr
+from pydantic import SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -33,6 +33,17 @@ class Settings(BaseSettings):
     github_app_id: str | None = None
     github_app_private_key: SecretStr | None = None
     github_app_private_key_path: Path | None = None
+
+    @field_validator(
+        "github_app_id", "github_app_private_key", "github_app_private_key_path", mode="before"
+    )
+    @classmethod
+    def _blank_env_is_unset(cls, value: object) -> object:
+        # A present-but-empty `KEY=` line in .env round-trips as "" (or Path("."), which
+        # str()s right back to "."), never None — so leaving one of these blank while
+        # filling in another (e.g. only PRIVATE_KEY_PATH, not PRIVATE_KEY) must still
+        # read as "not configured", not as a garbage empty credential.
+        return value or None
 
 
 @lru_cache
