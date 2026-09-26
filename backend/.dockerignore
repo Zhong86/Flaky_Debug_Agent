@@ -1,0 +1,11 @@
+.venv
+**/__pycache__
+.pytest_cache
+.ruff_cache
+.env
+*.pem
+tests
+test_run.py
+benchmark_test.py
+docker-compose.yml
+Dockerfile

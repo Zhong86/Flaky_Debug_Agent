@@ -1,0 +1,74 @@
+# Flaky Debug Agent: self-hosted demo stack. Runbook: deploy/README.md.
+#
+#   GitHub webhook / browser → ngrok (static domain) → caddy
+#       /api/* → backend (FastAPI + LangGraph + git + IBM Bob)
+#       /*     → frontend (Next.js dashboard)
+#   backend → postgres (LangGraph checkpointer)
+#
+# Start from the repo root:  docker compose -f deploy/compose.yaml up -d --build
+# Variables come from deploy/.env (copy deploy/.env.example).
+name: flaky-debug
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}
+      POSTGRES_DB: flaky_debug
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d flaky_debug"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    # No published port: only the backend talks to it.
+
+  backend:
+    build: ../backend
+    restart: unless-stopped
+    # Reaps the git/bob subprocesses the graph spawns.
+    init: true
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/flaky_debug
+    volumes:
+      # Bug reports the documents node writes; the dashboard reads them back.
+      - reports:/app/flaky_debug
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ../frontend
+      args:
+        NEXT_PUBLIC_API_BASE_URL: /api
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      - backend
+      - frontend
+
+  ngrok:
+    image: ngrok/ngrok:3-alpine
+    restart: unless-stopped
+    command: ["http", "caddy:80", "--url", "https://${NGROK_DOMAIN:?set NGROK_DOMAIN in deploy/.env}"]
+    environment:
+      NGROK_AUTHTOKEN: ${NGROK_AUTHTOKEN:?set NGROK_AUTHTOKEN in deploy/.env}
+    ports:
+      # Request inspector (watch and replay webhook deliveries), this machine only.
+      - "127.0.0.1:4040:4040"
+    depends_on:
+      - caddy
+
+volumes:
+  pgdata:
+  reports:

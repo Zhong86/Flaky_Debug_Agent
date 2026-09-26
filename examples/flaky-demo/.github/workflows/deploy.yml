@@ -1,0 +1,54 @@
+# Test, then deploy — the pipeline the Flaky Debug Agent watches.
+#
+# When the tests fail, GitHub sends a workflow_run webhook to the agent. Its name
+# ("Deploy") must be in the agent's WATCHED_WORKFLOWS. The agent reads the failing
+# tests from the JUnit artifact below, reruns them through flaky-rerun.yml, and if
+# they turn out to be flaky, has IBM Bob investigate and push a fix branch.
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  # Re-roll by hand: the flaky test passes about half the time.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run tests
+        # xunit1 records each test's file, so the agent gets exact pytest node IDs.
+        run: python -m pytest -o junit_family=xunit1 --junitxml=junit/report.xml
+
+      # The agent reads the failing tests from this artifact. Any artifact without an
+      # "-attempt-<n>" suffix counts as this run's own result (attempt 0).
+      - name: Upload JUnit report
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: junit-results
+          path: junit/report.xml
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    environment: production
+    concurrency: production
+    steps:
+      - name: Deploy (mock)
+        run: |
+          echo "Deploying ${GITHUB_SHA::7} to production"
+          echo "### Deployed \`${GITHUB_SHA::7}\` to production (mock)" >> "$GITHUB_STEP_SUMMARY"

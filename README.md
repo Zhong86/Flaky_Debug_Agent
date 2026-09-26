@@ -75,6 +75,10 @@ Both endpoints require an `X-Hub-Signature-256` HMAC of the body, keyed with `GI
 3. **Phase B.** When the detect rerun completes, the backend downloads its artifacts, plus the original run's JUnit report as attempt 0. It turns them into per-test pass/fail counts (`rerun_results`) and runs the LangGraph graph with `thread_id` = the original run id. The monitoring dashboard shows the result.
 4. **Retest.** The graph's `retest_flaky` node dispatches Flaky Rerun again with `purpose=retest` to verify the fix, and waits for the result itself. The webhook ignores retest runs, so they can't start a new analysis.
 
+### Deployment and demo
+- **[`deploy/`](deploy/README.md)** runs the whole stack on one machine with Docker Compose: API, graph, IBM Bob, Postgres and dashboard, published at a stable URL through ngrok. Its runbook covers the setup below end to end.
+- **[`examples/flaky-demo/`](examples/flaky-demo/README.md)** is the watched repo for the demo: a small service with a genuinely flaky async test, a `deploy.yml` pipeline (test, then deploy) and `flaky-rerun.yml`. Push it as its own public GitHub repo.
+
 ### Setup
 1. **Token.** Create a fine-grained PAT for the watched repo with:
    - **Actions: read & write**, to dispatch reruns and download artifacts;
