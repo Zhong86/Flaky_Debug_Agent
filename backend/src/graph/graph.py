@@ -18,6 +18,12 @@ def _route_flaky(state: GraphState) -> str:
     return "clone_repo" if state["is_flaky"] else END
 
 
+def _route_clone(state: GraphState) -> str:
+    # Empty repo_path means clone_repo failed -- there's no repo for debug_agent,
+    # code_fix, retest_flaky, or documents to work with, so skip straight to output.
+    return "debug_agent" if state.get("repo_path") else "output"
+
+
 builder = StateGraph(GraphState)
 
 builder.add_node("check_flaky", check_flaky)
@@ -31,8 +37,8 @@ builder.add_node("output", output)
 builder.set_entry_point("check_flaky")
 
 builder.add_conditional_edges("check_flaky", _route_flaky)
+builder.add_conditional_edges("clone_repo", _route_clone)
 
-builder.add_edge("clone_repo", "debug_agent")
 builder.add_edge("debug_agent", "code_fix")
 builder.add_edge("code_fix", "retest_flaky")
 builder.add_edge("retest_flaky", "documents")
