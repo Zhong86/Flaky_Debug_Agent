@@ -7,7 +7,8 @@ from fastapi.testclient import TestClient
 
 from core.config import Settings
 from services import github_jobs
-from tests.helpers import FakeGitHub, workflow_run
+from services.github_app import GitHubApp
+from tests.helpers import INSTALLATION_TOKEN, FakeGitHub, workflow_run
 
 REPO = "acme/ticket-booking"
 DEMO = "/api/demo"
@@ -47,6 +48,29 @@ async def test_get_job_logs_is_empty_before_the_job_starts(fake_github: FakeGitH
 # --- POST /demo/dispatch --------------------------------------------------------------
 
 
+def test_config_reports_the_demo_repo_and_its_urls(client: TestClient) -> None:
+    response = client.get(f"{DEMO}/config")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["configured"] is True
+    assert body["repo"] == REPO
+    assert body["repo_url"] == f"https://github.com/{REPO}"
+    assert body["actions_url"] == f"https://github.com/{REPO}/actions"
+
+
+def test_config_is_200_with_null_urls_when_no_demo_repo(client: TestClient, settings: Settings) -> None:
+    # Deliberately not 503 like the rest: the dashboard reads `configured` to decide
+    # whether to render the repo link, so it must be able to ask without an error.
+    settings.demo_repo = ""
+
+    response = client.get(f"{DEMO}/config")
+
+    assert response.status_code == 200
+    assert response.json()["configured"] is False
+    assert response.json()["actions_url"] is None
+
+
 def test_dispatch_without_a_configured_demo_repo_is_503(client: TestClient, settings: Settings) -> None:
     settings.demo_repo = ""
 
@@ -72,6 +96,41 @@ def test_dispatch_finds_and_returns_the_new_run(client: TestClient, fake_github:
     assert dispatch == {"ref": "main", "inputs": {}}
     dispatched = fake_github.calls("POST", r"/repos/acme/ticket-booking/actions/workflows/deploy\.yml/dispatches")
     assert len(dispatched) == 1
+
+
+def test_dispatch_authenticates_as_the_app_when_one_is_installed(
+    client: TestClient, fake_github: FakeGitHub, github_app: GitHubApp, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Nothing hands the demo an installation_id (no webhook), so it has to resolve one from
+    # the repo — without that it silently falls back to the PAT, which 403s on dispatch.
+    # Both: demo resolves the installation id, github_client mints the token from it.
+    monkeypatch.setattr("api.routes.demo.get_github_app", lambda: github_app)
+    monkeypatch.setattr("services.github_client.get_github_app", lambda: github_app)
+    fake_github.installations[REPO] = 4242
+    fake_github.workflow_runs = [workflow_run(run_id=500, name="Deploy")]
+    fake_github.runs[500] = workflow_run(run_id=500, name="Deploy", status="queued", conclusion=None)
+
+    response = client.post(f"{DEMO}/dispatch")
+
+    assert response.status_code == 200, response.text
+    [dispatch] = fake_github.calls("POST", r"/repos/acme/ticket-booking/actions/workflows/deploy\.yml/dispatches")
+    assert dispatch.headers["Authorization"] == f"Bearer {INSTALLATION_TOKEN}"
+    assert fake_github.calls("POST", r"/app/installations/4242/access_tokens")
+
+
+def test_dispatch_is_503_when_the_app_is_not_installed_on_the_demo_repo(
+    client: TestClient, fake_github: FakeGitHub, github_app: GitHubApp, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Both: demo resolves the installation id, github_client mints the token from it.
+    monkeypatch.setattr("api.routes.demo.get_github_app", lambda: github_app)
+    monkeypatch.setattr("services.github_client.get_github_app", lambda: github_app)
+    fake_github.installations.clear()
+
+    response = client.post(f"{DEMO}/dispatch")
+
+    assert response.status_code == 503
+    assert "not installed" in response.json()["detail"]
+    assert not fake_github.dispatches()
 
 
 # --- GET /demo/runs/{run_id} -----------------------------------------------------------

@@ -14,6 +14,7 @@ from fastapi import APIRouter, HTTPException, status
 from api.deps import LogBufferDep, SettingsDep
 from core.config import Settings
 from services import github_dispatch, github_jobs
+from services.github_app import get_github_app
 
 router = APIRouter(prefix="/demo", tags=["demo"])
 
@@ -49,6 +50,24 @@ async def _demo_auth(settings: Settings) -> tuple[str, int | None]:
     return repo, installation_id
 
 
+@router.get("/config")
+async def get_demo_config(settings: SettingsDep) -> dict:
+    """What the demo is pointed at, so the dashboard can link to it without hardcoding the repo.
+
+    Unlike the other endpoints this one stays 200 when DEMO_REPO is unset — the dashboard uses
+    `configured` to decide whether to render the repo link at all.
+    """
+    repo = settings.demo_repo
+    return {
+        "configured": bool(repo),
+        "repo": repo,
+        "workflow_file": settings.demo_workflow_file,
+        "ref": settings.demo_ref,
+        "repo_url": f"https://github.com/{repo}" if repo else None,
+        "actions_url": f"https://github.com/{repo}/actions" if repo else None,
+    }
+
+
 @router.post("/dispatch")
 async def dispatch_demo_run(settings: SettingsDep) -> dict:
     """Dispatch and locate the run. Takes a few seconds: dispatch itself returns no run ID."""
@@ -73,10 +92,10 @@ async def dispatch_demo_run(settings: SettingsDep) -> dict:
 @router.get("/runs/{run_id}")
 async def get_demo_run(run_id: int, settings: SettingsDep) -> dict:
     """Run status plus its jobs/steps — the tree the dashboard polls and renders."""
-    repo = _require_demo_repo(settings)
+    repo, installation_id = await _demo_auth(settings)
     run, jobs = await asyncio.gather(
-        github_dispatch.get_run(repo, run_id),
-        github_jobs.list_run_jobs(repo, run_id),
+        github_dispatch.get_run(repo, run_id, installation_id),
+        github_jobs.list_run_jobs(repo, run_id, installation_id),
     )
     return {
         "run_id": run_id,
@@ -109,8 +128,8 @@ async def get_demo_run(run_id: int, settings: SettingsDep) -> dict:
 @router.get("/jobs/{job_id}/logs")
 async def get_demo_job_logs(job_id: int, settings: SettingsDep) -> dict:
     """JSON envelope (not plain text) so "job hasn't started" is a normal 200, not an error."""
-    repo = _require_demo_repo(settings)
-    logs = await github_jobs.get_job_logs(repo, job_id)
+    repo, installation_id = await _demo_auth(settings)
+    logs = await github_jobs.get_job_logs(repo, job_id, installation_id)
     return {"available": bool(logs), "logs": logs}
 
 

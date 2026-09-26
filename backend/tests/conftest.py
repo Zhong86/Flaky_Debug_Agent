@@ -10,7 +10,7 @@ from api.deps import get_graph
 from core.config import Settings, get_settings
 from main import app
 from services import flaky_pipeline, github_client
-from services.github_app import GitHubApp
+from services.github_app import GitHubApp, get_github_app
 from tests.helpers import GITHUB_TOKEN, WEBHOOK_SECRET, FakeGitHub, FakeGraph
 
 
@@ -24,12 +24,20 @@ def settings_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
         "WATCHED_WORKFLOWS": '["CI"]',
         "RERUN_ATTEMPTS": "5",
         "MAX_ARTIFACT_BYTES": "1000000",
+        # Off by default: with an app id set, get_github_app() builds a real App with no
+        # mock transport, so any App-auth path in a test would hit the live API. Tests that
+        # want the App override get_github_app with the `github_app` fixture instead.
+        "GITHUB_APP_ID": "",
+        "GITHUB_APP_PRIVATE_KEY": "",
+        "GITHUB_APP_PRIVATE_KEY_PATH": "",
     }
     for key, value in env.items():
         monkeypatch.setenv(key, value)
     get_settings.cache_clear()
+    get_github_app.cache_clear()
     yield
     get_settings.cache_clear()
+    get_github_app.cache_clear()
 
 
 @pytest.fixture(autouse=True)

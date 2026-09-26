@@ -1,5 +1,6 @@
 import type {
   BackendLogs,
+  DemoConfig,
   DemoDispatchResponse,
   DemoJobLogs,
   DemoRun,
@@ -51,6 +52,10 @@ export async function getRunReport(threadId: string, init?: RequestInit): Promis
   }
 
   return res.text();
+}
+
+export function getDemoConfig(init?: RequestInit): Promise<DemoConfig> {
+  return apiFetch<DemoConfig>("/demo/config", init);
 }
 
 export function dispatchDemoRun(init?: RequestInit): Promise<DemoDispatchResponse> {

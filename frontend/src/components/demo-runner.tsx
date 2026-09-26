@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-import { dispatchDemoRun, getBackendLogs, getDemoJobLogs, getDemoRun } from "@/lib/api";
+import { dispatchDemoRun, getBackendLogs, getDemoConfig, getDemoJobLogs, getDemoRun } from "@/lib/api";
 import { formatBackendLogs, runStatusTone } from "@/lib/format";
 import type { DemoJob, DemoRun } from "@/lib/types";
 import { usePoll } from "@/lib/use-poll";
@@ -77,6 +77,10 @@ export function DemoRunner() {
   const [dispatchError, setDispatchError] = useState<Error | null>(null);
   const [selectedJobId, setSelectedJobId] = useState<number | null>(null);
 
+  // DEMO_REPO can't change under a running backend, so this rides usePoll's
+  // fire-once-immediately behaviour with no interval rather than polling.
+  const { data: demoConfig } = usePoll((signal) => getDemoConfig({ signal }), null);
+
   // usePoll always fires its fetcher once immediately regardless of intervalMs, so
   // each fetcher below must no-op (resolve null) until it has something to fetch.
   const {
@@ -120,14 +124,26 @@ export function DemoRunner() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
+          {/* border-transparent carries no colour; it matches the bordered "Demo repo" link's height. */}
           <button
             type="button"
             onClick={onDispatch}
             disabled={dispatching}
-            className="rounded-md bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+            className="rounded-md border border-transparent bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
           >
             {dispatching ? "Dispatching…" : runId ? "Run again" : "Run Deploy"}
           </button>
+          {demoConfig?.actions_url ? (
+            <a
+              href={demoConfig.actions_url}
+              target="_blank"
+              rel="noreferrer"
+              title={`${demoConfig.repo} — ${demoConfig.workflow_file} on ${demoConfig.ref}`}
+              className="rounded-md border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-900"
+            >
+              Demo repo ↗
+            </a>
+          ) : null}
           {run ? (
             <a
               href={run.html_url}

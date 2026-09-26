@@ -71,6 +71,15 @@ export type RunTimeline = {
  * dispatch `deploy.yml` by hand and watch it run, like `gh run watch` in the browser.
  */
 
+export type DemoConfig = {
+  configured: boolean;
+  repo: string;
+  workflow_file: string;
+  ref: string;
+  repo_url: string | null;
+  actions_url: string | null;
+};
+
 export type DemoDispatchResponse = {
   run_id: number;
   html_url: string;

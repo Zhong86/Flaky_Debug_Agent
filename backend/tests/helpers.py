@@ -43,6 +43,7 @@ class FakeGitHub:
         self.repo_files: dict[str, bytes] = {}  # path -> raw content, e.g. "package.json"
         self.jobs: dict[int, list[dict[str, Any]]] = {}  # run_id -> jobs, for the demo run-status endpoint
         self.job_logs: dict[int, str] = {}  # job_id -> raw text; absent job_id means "not started" (404)
+        self.installations: dict[str, int] = {}  # "owner/name" -> installation id; absent means "App not installed"
         self.dispatch_status = 204
         self.token_expires_at = "2099-01-01T00:00:00Z"
         self._next_artifact_id = 1
@@ -84,6 +85,11 @@ class FakeGitHub:
         path = request.url.path
         if request.url.host == "blob.example":
             return httpx.Response(200, content=self.blobs[path])
+        if re.fullmatch(r"/repos/[^/]+/[^/]+/installation", path):
+            repo = "/".join(path.split("/")[2:4])
+            if (installation_id := self.installations.get(repo)) is None:
+                return httpx.Response(404, json={"message": "Not Found"})
+            return httpx.Response(200, json={"id": installation_id})
         if re.fullmatch(r"/app/installations/\d+/access_tokens", path):
             token = {"token": INSTALLATION_TOKEN, "expires_at": self.token_expires_at}
             return httpx.Response(201, json=token)
