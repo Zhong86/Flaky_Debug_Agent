@@ -34,6 +34,10 @@ import textwrap
 from datetime import datetime
 from pathlib import Path
 
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).parents[3] / "backend" / ".env")
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -83,7 +87,7 @@ def call_ibm_bob_cli(prompt: str, repo_path: str = ".") -> str:
     """
     try:
         result = subprocess.run(
-            ["bobshell", "--prompt", prompt],
+            ["bob.cmd", "run", "--accept-license", prompt],
             cwd=repo_path,
             capture_output=True,
             text=True,

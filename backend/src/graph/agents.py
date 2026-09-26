@@ -35,15 +35,12 @@ subprocess inside the repository directory.  See tools.call_ibm_bob_cli.
 
 from __future__ import annotations
 
-import os
-
 from graph.state import GraphState
 from graph.tools import (
     call_ibm_bob_cli,
     create_markdown_docs,
     filter_async_git_diff,
     read_source_code,
-    run_generic_test,
 )
 
 
@@ -71,16 +68,11 @@ def investigator_agents(state: GraphState) -> dict:
     async_diff = filter_async_git_diff(repo_path)
     source_code = read_source_code(changed_file) if changed_file else "(no file specified)"
 
-    # Run the test suite once to capture fresh output alongside the CI logs.
-    test_result = run_generic_test(repo_path, test_command, iterations=10)
-    live_failure_rate = test_result["failure_rate"]
-    live_failures = test_result["failures"]
-
     prompt = (
         "You are the Master Agent for a flaky-test debugging system.\n"
         "Please act simultaneously as all three specialist sub-agents:\n\n"
         "  - Alpha (Load/Stress Tester): Analyse the statistical failure rate "
-        "from the live test runs below and identify burst-failure patterns.\n"
+        "visible in the CI logs below and identify burst-failure patterns.\n"
         "  - Beta (Delay Injector / TOCTOU Analyst): Examine the async git diff "
         "for race conditions and Time-of-Check-to-Time-of-Use windows. Propose "
         "the exact code locations where a sleep() injection would reliably "
@@ -94,8 +86,6 @@ def investigator_agents(state: GraphState) -> dict:
         f"Test command: {test_command}\n\n"
         "== CI FAILURE LOGS ==\n"
         f"{logs or '(none provided)'}\n\n"
-        "== LIVE TEST RUN (10 iterations) ==\n"
-        f"Failures: {live_failures}/10  |  Failure rate: {live_failure_rate:.0%}\n\n"
         "== ASYNC / CONCURRENCY GIT DIFF ==\n"
         f"{async_diff or '(no concurrency-related changes detected)'}\n\n"
         "== SOURCE CODE ==\n"
@@ -104,8 +94,7 @@ def investigator_agents(state: GraphState) -> dict:
 
     print(
         f"[investigator_agents] Calling bobshell | "
-        f"repo={repo_path} | file={changed_file or 'N/A'} | "
-        f"live_failure_rate={live_failure_rate:.0%}"
+        f"repo={repo_path} | file={changed_file or 'N/A'}"
     )
 
     debug_findings = call_ibm_bob_cli(prompt, repo_path=repo_path)
