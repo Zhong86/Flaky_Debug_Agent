@@ -1,0 +1,11 @@
+# Everything arrives here from ngrok, which terminates HTTPS.
+# /api/* (dashboard data and GitHub webhooks) goes to FastAPI untouched; the webhook
+# signature covers the exact request body. Everything else is the dashboard.
+:80 {
+	handle /api/* {
+		reverse_proxy backend:8000
+	}
+	handle {
+		reverse_proxy frontend:3000
+	}
+}
