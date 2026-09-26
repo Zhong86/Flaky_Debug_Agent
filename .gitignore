@@ -14,5 +14,5 @@ out/
 .env
 .env.local
 
-# GitHub App private keys
-*.pem
+# Generated run output
+flaky_debug/

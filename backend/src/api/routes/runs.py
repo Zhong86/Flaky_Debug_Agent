@@ -1,6 +1,13 @@
+from pathlib import Path
+
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import PlainTextResponse
 
 router = APIRouter(prefix="/runs", tags=["runs"])
+
+# Reports are written under <repo_root>/flaky_debug by graph.nodes.documents — mirror
+# that root here so we can validate a requested path stays inside it before reading.
+_REPORTS_ROOT = Path(__file__).resolve().parents[4] / "flaky_debug"
 
 
 def _run_summary(thread_id: str, channel_values: dict) -> dict:
@@ -71,3 +78,22 @@ async def get_run_timeline(request: Request, thread_id: str):
             }
         )
     return {"thread_id": thread_id, "steps": steps}
+
+
+@router.get("/{thread_id}/report", response_class=PlainTextResponse)
+async def get_run_report(request: Request, thread_id: str):
+    """Raw markdown of the report the documents node wrote for this run."""
+    graph = request.app.state.graph
+    config = {"configurable": {"thread_id": thread_id}}
+    snapshot = await graph.aget_state(config)
+    document = (snapshot.values or {}).get("document")
+    if not document:
+        raise HTTPException(status_code=404, detail=f"No report written for thread_id={thread_id!r}")
+
+    path = Path(document).resolve()
+    if _REPORTS_ROOT not in path.parents:
+        raise HTTPException(status_code=403, detail="Report path is outside the reports directory")
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Report file no longer exists on disk")
+
+    return path.read_text()

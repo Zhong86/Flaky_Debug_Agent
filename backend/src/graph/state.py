@@ -10,6 +10,8 @@ class GraphState(TypedDict):
     repo_path: str
     debug_findings: str
     fix_applied: bool
+    fix_branch: str
+    fix_sha: str
     retest_passed: bool
     document: str
     callback_url: str

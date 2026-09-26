@@ -48,9 +48,10 @@ module-name = ["main", "api", "core", "graph", "schemas", "services"]
 
 [dependency-groups]
 dev = [
-    "httpx>=0.28.1",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
+    "pytest-repeat>=0.9.3",
+    "pytest-rerunfailures>=14.0",
     "ruff>=0.16.9",
 ]
 

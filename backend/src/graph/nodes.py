@@ -1,14 +1,11 @@
-import os
 import subprocess
 import tempfile
 from datetime import datetime
-from pathlib import Path
 
+from core.config import get_settings
+from graph.agents import documenter_agent, fixer_agent, investigator_agents
 from graph.state import GraphState
-
-# Project root is 3 levels up from this file:
-# graph/ -> src/ -> backend/ -> <project root>
-_PROJECT_ROOT = Path(__file__).parents[3]
+from services.github_dispatch import rerun_and_wait
 
 
 def check_flaky(state: GraphState) -> dict:
@@ -43,65 +40,88 @@ def clone_repo(state: GraphState) -> dict:
 
 
 def debug_agent(state: GraphState) -> dict:
-    print("[debug_agent] Running multi-agent debug system (stub)...")
-    print(f"[debug_agent] Reading checkout at {state.get('repo_path', 'N/A')}")
-    findings = (
-        "STUB: Root cause identified as a race condition in the test setup "
-        "due to shared mutable state between test cases."
-    )
-    print(f"[debug_agent] debug_findings={findings!r}")
-    return {"debug_findings": findings}
+    """Run the Alpha/Beta/Gamma investigation via IBM Bob CLI. See agents.investigator_agents."""
+    return investigator_agents(state)
+
+
+_BOT_IDENTITY = {
+    "user.name": "flaky-debug-agent[bot]",
+    "user.email": "flaky-debug-agent[bot]@users.noreply.github.com",
+}
+
+
+def _git(repo_path: str, *args: str, config: dict[str, str] | None = None) -> str:
+    cmd = ["git", "-C", repo_path]
+    for key, value in (config or {}).items():
+        cmd += ["-c", f"{key}={value}"]
+    cmd += list(args)
+    return subprocess.run(cmd, check=True, capture_output=True, text=True).stdout.strip()
 
 
 def code_fix(state: GraphState) -> dict:
-    print("[code_fix] Running Bob Agent mode to apply fix (stub)...")
-    print(f"[code_fix] Applying fix based on findings: {state['debug_findings']!r}")
-    fix_applied = True
-    print(f"[code_fix] fix_applied={fix_applied}")
-    return {"fix_applied": fix_applied}
+    print("[code_fix] Delegating fix to IBM Bob CLI...")
+
+    repo_path = state.get("repo_path")
+    if not repo_path:
+        print("[code_fix] No repo_path (clone_repo failed?) — skipping")
+        return {"fix_applied": False}
+
+    bob_result = fixer_agent(state)
+    if not bob_result.get("fix_applied"):
+        print("[code_fix] Bob did not produce a fix")
+        return {"fix_applied": False}
+
+    settings = get_settings()
+    if not settings.github_token:
+        print("[code_fix] No GITHUB_TOKEN — fix applied locally only, skipping push")
+        return {"fix_applied": True}
+
+    findings = state["debug_findings"]
+    branch = f"flaky-fix/{datetime.now().strftime('%Y%m%d%H%M%S')}"
+    try:
+        _git(repo_path, "checkout", "-b", branch)
+        _git(repo_path, "add", "-A")
+        _git(repo_path, "commit", "-m", f"flaky-fix: {findings[:72]}", config=_BOT_IDENTITY)
+        _git(
+            repo_path,
+            "push",
+            "origin",
+            branch,
+            config={"http.extraheader": f"AUTHORIZATION: bearer {settings.github_token}"},
+        )
+        sha = _git(repo_path, "rev-parse", "HEAD")
+    except subprocess.CalledProcessError as e:
+        print(f"[code_fix] Commit/push failed: {e.stderr}")
+        return {"fix_applied": False}
+
+    print(f"[code_fix] Pushed {branch} -> {sha}")
+    return {"fix_applied": True, "fix_branch": branch, "fix_sha": sha}
 
 
-def retest_flaky(state: GraphState) -> dict:
-    print("[retest_flaky] Retesting flaky test (stub)...")
-    # Hardcoded for development — real pytest rerun goes here
-    retest_passed = True
+async def retest_flaky(state: GraphState) -> dict:
+    print("[retest_flaky] Retesting flaky test...")
+
+    if not get_settings().github_token:
+        print("[retest_flaky] No GITHUB_TOKEN configured — falling back to stub")
+        return {"retest_passed": True}
+
+    payload = state["github_payload"]
+    repo = payload.get("repository")
+    # Prefer the fix branch code_fix actually pushed; fall back to the original
+    # branch/sha when code_fix stayed in stub mode (no token, or nothing to commit).
+    ref = state.get("fix_branch") or payload.get("branch") or "main"
+    sha = state.get("fix_sha") or payload.get("sha") or ref
+    test_ids = [r["test_id"] for r in state["rerun_results"]]
+
+    results = await rerun_and_wait(repo, ref=ref, sha=sha, test_ids=test_ids)
+    retest_passed = bool(results) and all(r["passed"] == r["attempts"] for r in results)
     print(f"[retest_flaky] retest_passed={retest_passed}")
     return {"retest_passed": retest_passed}
 
 
 def documents(state: GraphState) -> dict:
-    print("[documents] Generating findings document (stub LLM summary)...")
-    subfolder = "success" if state["retest_passed"] else "fail"
-    output_dir = _PROJECT_ROOT / "flaky_debug" / subfolder
-    os.makedirs(output_dir, exist_ok=True)
-
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filename = f"report_{timestamp}.md"
-    filepath = output_dir / filename
-
-    # Stub LLM summary — real LLM call replaces this block
-    content = f"""# Flaky Debug Report
-
-**Generated:** {datetime.now().isoformat()}
-**Outcome:** {subfolder.upper()}
-
-## Debug Findings
-{state.get('debug_findings', 'N/A')}
-
-## Fix Applied
-{state.get('fix_applied', False)}
-
-## Retest Passed
-{state.get('retest_passed', False)}
-
-## GitHub Payload Summary
-Repository: {state.get('github_payload', {}).get('repository', 'N/A')}
-"""
-
-    filepath.write_text(content)
-    document_path = str(filepath)
-    print(f"[documents] Written to {document_path}")
-    return {"document": document_path}
+    """Write the final bug-report via IBM Bob CLI. See agents.documenter_agent."""
+    return documenter_agent(state)
 
 
 def output(state: GraphState) -> dict:

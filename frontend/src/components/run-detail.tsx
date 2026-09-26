@@ -11,18 +11,34 @@ import {
   repoName,
   stateKeyLabel,
   stepDuration,
+  stepTone,
   visibleDiffEntries,
 } from "@/lib/format";
 import type { GraphValues, RunStep } from "@/lib/types";
 import { usePoll } from "@/lib/use-poll";
 import { LiveControls } from "./live-controls";
+import { ReportViewer } from "./report-viewer";
 import { RerunResultsTable, StateValue } from "./state-value";
-import { Card, CodeBlock, EmptyState, ErrorBanner, Mono, Pill, SectionLabel, Verdict } from "./ui";
+import { Card, CodeBlock, EmptyState, ErrorBanner, Pill, SectionLabel, Verdict } from "./ui";
 
 const POLL_MS = 4000;
 
+const DOT_CLASSES: Record<"green" | "orange" | "zinc", string> = {
+  green: "bg-green-500",
+  orange: "bg-orange-500",
+  zinc: "bg-zinc-300 dark:bg-zinc-700",
+};
+
 /** The six things the graph concludes, pulled from the final state. */
-function RunSummaryPanel({ values, pending }: { values: GraphValues; pending: string[] }) {
+function RunSummaryPanel({
+  threadId,
+  values,
+  pending,
+}: {
+  threadId: string;
+  values: GraphValues;
+  pending: string[];
+}) {
   const reruns = values.rerun_results ?? [];
 
   return (
@@ -39,7 +55,7 @@ function RunSummaryPanel({ values, pending }: { values: GraphValues; pending: st
       <Card className="p-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <SectionLabel>Failing tests</SectionLabel>
-          {pending.length ? <Pill tone="blue">Waiting on {pending.join(", ")}</Pill> : null}
+          {pending.length ? <Pill tone="orange">Waiting on {pending.join(", ")}</Pill> : null}
         </div>
         <div className="mt-3">
           {reruns.length ? (
@@ -92,9 +108,9 @@ function RunSummaryPanel({ values, pending }: { values: GraphValues; pending: st
       {values.document ? (
         <Card className="p-4">
           <SectionLabel>Report</SectionLabel>
-          <p className="mt-2">
-            <Mono>{values.document}</Mono>
-          </p>
+          <div className="mt-2">
+            <ReportViewer threadId={threadId} documentPath={values.document} />
+          </div>
         </Card>
       ) : null}
     </div>
@@ -116,9 +132,7 @@ function TimelineEntry({ step, previous }: { step: RunStep; previous: RunStep | 
         aria-hidden
       />
       <span
-        className={`absolute top-2.5 left-1.5 h-2.5 w-2.5 rounded-full ring-4 ring-white dark:ring-zinc-950 ${
-          isBookkeeping ? "bg-zinc-300 dark:bg-zinc-700" : "bg-blue-500"
-        }`}
+        className={`absolute top-2.5 left-1.5 h-2.5 w-2.5 rounded-full ring-4 ring-white dark:ring-zinc-950 ${DOT_CLASSES[stepTone(step)]}`}
         aria-hidden
       />
 
@@ -233,7 +247,7 @@ export function RunDetail({ threadId }: { threadId: string }) {
         </p>
       ) : null}
 
-      <RunSummaryPanel values={finalValues} pending={pending} />
+      <RunSummaryPanel threadId={threadId} values={finalValues} pending={pending} />
 
       <div>
         <SectionLabel>Node timeline</SectionLabel>

@@ -133,7 +133,7 @@ export function RunsList() {
                       falseLabel="Retest failed"
                       pendingLabel="Not retested"
                     />
-                    {run.document ? <Pill tone="blue">Report written</Pill> : null}
+                    {run.document ? <Pill tone="green">Report written</Pill> : null}
                   </div>
                 </Link>
               </li>

@@ -34,3 +34,14 @@ export async function listRuns(limit = 50, init?: RequestInit): Promise<RunSumma
 export function getRunTimeline(threadId: string, init?: RequestInit): Promise<RunTimeline> {
   return apiFetch<RunTimeline>(`/runs/${encodeURIComponent(threadId)}`, init);
 }
+
+export async function getRunReport(threadId: string, init?: RequestInit): Promise<string> {
+  const path = `/runs/${encodeURIComponent(threadId)}/report`;
+  const res = await fetch(`${API_BASE_URL}${path}`, init);
+
+  if (!res.ok) {
+    throw new ApiError(`API ${path} failed: ${res.status} ${res.statusText}`, res.status);
+  }
+
+  return res.text();
+}
