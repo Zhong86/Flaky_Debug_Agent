@@ -24,7 +24,16 @@ async def main(repo: str, installation_id: int) -> None:
         resp = await client.get(f"/repos/{repo}")
         resp.raise_for_status()
 
-    print("Auth works. Repo permissions:", resp.json()["permissions"])
+    # The repo's `permissions` field reflects classic collaborator roles
+    # (admin/push/pull), which GitHub only populates for user-authenticated
+    # tokens — it's always False for App installation tokens regardless of
+    # what's actually granted. The real grant lives on the installation
+    # object itself, fetched here with the App JWT (not the installation token).
+    async with app._client(app.app_jwt()) as client:
+        resp = await client.get(f"/app/installations/{installation_id}")
+        resp.raise_for_status()
+
+    print("Auth works. Installation permissions:", resp.json()["permissions"])
 
 
 if __name__ == "__main__":
