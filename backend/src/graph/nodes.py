@@ -55,12 +55,58 @@ def debug_agent(state: GraphState) -> dict:
     return {"debug_findings": findings}
 
 
+_BOT_IDENTITY = {
+    "user.name": "flaky-debug-agent[bot]",
+    "user.email": "flaky-debug-agent[bot]@users.noreply.github.com",
+}
+
+
+def _git(repo_path: str, *args: str, config: dict[str, str] | None = None) -> str:
+    cmd = ["git", "-C", repo_path]
+    for key, value in (config or {}).items():
+        cmd += ["-c", f"{key}={value}"]
+    cmd += list(args)
+    return subprocess.run(cmd, check=True, capture_output=True, text=True).stdout.strip()
+
+
 def code_fix(state: GraphState) -> dict:
     print("[code_fix] Running Bob Agent mode to apply fix (stub)...")
     print(f"[code_fix] Applying fix based on findings: {state['debug_findings']!r}")
-    fix_applied = True
-    print(f"[code_fix] fix_applied={fix_applied}")
-    return {"fix_applied": fix_applied}
+
+    repo_path = state.get("repo_path")
+    settings = get_settings()
+    if not settings.github_token or not repo_path:
+        print("[code_fix] No GITHUB_TOKEN/repo_path — skipping real commit (stub)")
+        return {"fix_applied": True}
+
+    # Stub content — real file edits go here once the agent actually reasons
+    # over the codebase; the git plumbing (branch, commit, push) is real either way.
+    findings = state["debug_findings"]
+    notes_path = Path(repo_path) / "FLAKY_FIX_NOTES.md"
+    notes_path.write_text(
+        f"# Flaky Fix (stub)\n\n## Debug findings\n{findings}\n\n"
+        "Real fix content goes here once the agent actually edits source files.\n"
+    )
+
+    branch = f"flaky-fix/{datetime.now().strftime('%Y%m%d%H%M%S')}"
+    try:
+        _git(repo_path, "checkout", "-b", branch)
+        _git(repo_path, "add", "FLAKY_FIX_NOTES.md")
+        _git(repo_path, "commit", "-m", f"flaky-fix: {findings[:72]}", config=_BOT_IDENTITY)
+        _git(
+            repo_path,
+            "push",
+            "origin",
+            branch,
+            config={"http.extraheader": f"AUTHORIZATION: bearer {settings.github_token}"},
+        )
+        sha = _git(repo_path, "rev-parse", "HEAD")
+    except subprocess.CalledProcessError as e:
+        print(f"[code_fix] Commit/push failed: {e.stderr}")
+        return {"fix_applied": False}
+
+    print(f"[code_fix] Pushed {branch} -> {sha}")
+    return {"fix_applied": True, "fix_branch": branch, "fix_sha": sha}
 
 
 async def retest_flaky(state: GraphState) -> dict:
@@ -72,10 +118,10 @@ async def retest_flaky(state: GraphState) -> dict:
 
     payload = state["github_payload"]
     repo = payload.get("repository")
-    # TODO: once code_fix pushes a real fix commit, thread that branch/sha through
-    # state instead of retargeting the original branch — this reruns in place for now.
-    ref = payload.get("branch") or "main"
-    sha = payload.get("sha") or ref
+    # Prefer the fix branch code_fix actually pushed; fall back to the original
+    # branch/sha when code_fix stayed in stub mode (no token, or nothing to commit).
+    ref = state.get("fix_branch") or payload.get("branch") or "main"
+    sha = state.get("fix_sha") or payload.get("sha") or ref
     test_ids = [r["test_id"] for r in state["rerun_results"]]
 
     results = await rerun_and_wait(repo, ref=ref, sha=sha, test_ids=test_ids)

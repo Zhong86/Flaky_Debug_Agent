@@ -45,6 +45,7 @@ dependencies = [
     { name = "fastapi" },
     { name = "h11" },
     { name = "httptools" },
+    { name = "httpx" },
     { name = "idna" },
     { name = "langgraph" },
     { name = "langgraph-checkpoint-postgres" },
@@ -65,7 +66,6 @@ dependencies = [
 
 [package.dev-dependencies]
 dev = [
-    { name = "httpx" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "ruff" },
@@ -80,6 +80,7 @@ requires-dist = [
     { name = "fastapi", specifier = "==0.141.1" },
     { name = "h11", specifier = "==0.16.0" },
     { name = "httptools", specifier = "==0.8.0" },
+    { name = "httpx", specifier = ">=0.28.1" },
     { name = "idna", specifier = "==3.20" },
     { name = "langgraph", specifier = ">=0.2.0" },
     { name = "langgraph-checkpoint-postgres", specifier = ">=2.0.0" },
@@ -100,7 +101,6 @@ requires-dist = [
 
 [package.metadata.requires-dev]
 dev = [
-    { name = "httpx", specifier = ">=0.28.1" },
     { name = "pytest", specifier = ">=9.1.1" },
     { name = "pytest-asyncio", specifier = ">=1.4.0" },
     { name = "ruff", specifier = ">=0.16.9" },
