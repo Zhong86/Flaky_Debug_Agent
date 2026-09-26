@@ -1,16 +1,29 @@
 """
-tools.py — Language-agnostic tool functions for the Flaky Debug Agent.
+tools.py -- Pure-Python helper functions for the Flaky Debug Agent.
 
-Read-only tools  (safe for the Explore / Investigator sub-agents):
-  • run_generic_test      — run any test command N times via a subprocess loop
-                           and return a statistical failure-rate summary.
-  • filter_async_git_diff — extract concurrency-related hunks from git diff
-                           (supports Python, Java, Node.js, Go, and more).
-  • read_source_code      — read and return the raw text of any source file.
+All AI reasoning is delegated to the local IBM Bob CLI (bobshell).
+No LLM libraries, no langchain, no Watsonx SDK -- only stdlib.
 
-Write tools  (reserved for the General / Fixer sub-agent):
-  • write_fixed_code      — overwrite a file with corrected source code.
-  • create_markdown_docs  — write a timestamped markdown bug-report to disk.
+Functions
+---------
+call_ibm_bob_cli(prompt, repo_path)
+    Core function: invokes ``bobshell`` as a subprocess and returns its
+    stdout.  Every agent node calls this to drive all intelligence.
+
+run_generic_test(repo_path, test_command, iterations)
+    Run a test command N times, return a statistical failure-rate summary.
+
+filter_async_git_diff(repo_path)
+    Extract concurrency-related diff hunks from ``git diff HEAD~1 HEAD``.
+
+read_source_code(file_path)
+    Read and return the raw text of any source file.
+
+write_fixed_code(file_path, new_code)
+    Overwrite a file with corrected source code.
+
+create_markdown_docs(content)
+    Write a timestamped markdown bug-report to flaky_debug/reports/.
 """
 
 from __future__ import annotations
@@ -21,61 +34,26 @@ import textwrap
 from datetime import datetime
 from pathlib import Path
 
-from langchain_core.tools import tool
-
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
 # Multi-language concurrency keywords that flag a diff hunk as suspicious.
-# Covers: Python, Java, Node.js / TypeScript, Go, C#, Ruby, Rust, and Shell.
 _ASYNC_THREAD_PATTERNS = (
-    # ---- Python ----
-    "async def",
-    "await ",
-    "asyncio",
-    "threading",
-    "ThreadPoolExecutor",
-    "concurrent.futures",
-    "loop.run_until_complete",
-    "create_task",
-    "gather(",
-    # ---- Java ----
-    "synchronized",
-    "Runnable",
-    "java.util.concurrent",
-    "ExecutorService",
-    "CountDownLatch",
-    "ReentrantLock",
-    "volatile ",
-    # ---- Go ----
-    "goroutine",
-    "go func",
-    "chan ",
-    "sync.Mutex",
-    "sync.WaitGroup",
-    "select {",
-    # ---- JavaScript / TypeScript / Node.js ----
-    "Promise",
-    "async function",
-    "async () =>",
-    ".then(",
-    "setTimeout(",
-    "setInterval(",
-    "process.nextTick",
-    "new Worker(",
-    # ---- Generic / cross-language ----
-    "Thread(",
-    "async ",        # catches C#, Kotlin, Dart, etc.
-    "await ",        # intentional duplicate — belt-and-suspenders for JS/C#
-    "lock ",
-    "lock(",
-    "Lock()",
-    "sleep(",        # race-condition indicator in any language
-    "Semaphore(",
-    "Mutex",
-    "atomic",
-    "volatile",
+    # Python
+    "async def", "await ", "asyncio", "threading", "ThreadPoolExecutor",
+    "concurrent.futures", "loop.run_until_complete", "create_task", "gather(",
+    # Java
+    "synchronized", "Runnable", "java.util.concurrent", "ExecutorService",
+    "CountDownLatch", "ReentrantLock", "volatile ",
+    # Go
+    "goroutine", "go func", "chan ", "sync.Mutex", "sync.WaitGroup", "select {",
+    # JavaScript / TypeScript / Node.js
+    "Promise", "async function", "async () =>", ".then(", "setTimeout(",
+    "setInterval(", "process.nextTick", "new Worker(",
+    # Generic / cross-language
+    "Thread(", "async ", "lock ", "lock(", "Lock()", "sleep(",
+    "Semaphore(", "Mutex", "atomic", "volatile",
 )
 
 # Where markdown reports land (relative to project root).
@@ -83,26 +61,69 @@ _REPORT_DIR = Path(__file__).parents[3] / "flaky_debug"
 
 
 # ---------------------------------------------------------------------------
-# Read-only tools
+# Core: IBM Bob CLI bridge
 # ---------------------------------------------------------------------------
 
 
-@tool
+def call_ibm_bob_cli(prompt: str, repo_path: str = ".") -> str:
+    """Invoke the local IBM Bob CLI (``bobshell``) with *prompt*.
+
+    Runs::
+
+        bobshell --prompt "<prompt>"
+
+    inside *repo_path* so Bob has the correct working directory context.
+
+    Returns
+    -------
+    str
+        Bob's full stdout response, or an error message prefixed with
+        ``[bobshell error]`` when the process exits non-zero or the
+        binary is not found.
+    """
+    try:
+        result = subprocess.run(
+            ["bobshell", "--prompt", prompt],
+            cwd=repo_path,
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+    except FileNotFoundError:
+        return (
+            "[bobshell error] 'bobshell' binary not found. "
+            "Make sure the IBM Bob CLI is installed and on PATH."
+        )
+    except subprocess.TimeoutExpired:
+        return "[bobshell error] Process timed out after 300 s."
+
+    if result.returncode != 0:
+        stderr_snippet = result.stderr.strip()[-500:] if result.stderr else "(no stderr)"
+        return (
+            f"[bobshell error] Exit code {result.returncode}.\n"
+            f"stderr: {stderr_snippet}"
+        )
+
+    return result.stdout
+
+
+# ---------------------------------------------------------------------------
+# Read-only helpers (used to build context for Bob prompts)
+# ---------------------------------------------------------------------------
+
+
 def run_generic_test(repo_path: str, test_command: str, iterations: int = 10) -> dict:
     """Run *test_command* inside *repo_path* exactly *iterations* times.
 
-    Each run is independent — no plugin required.  Works for any language:
-    ``npm test``, ``mvn test``, ``go test ./...``, ``pytest``, etc.
+    Works for any language: ``pytest``, ``npm test``, ``go test ./...``, etc.
 
     Returns a dict with:
-      - ``iterations``     (int)   — number of runs requested.
-      - ``failures``       (int)   — number of runs that exited non-zero.
-      - ``failure_rate``   (float) — failures / iterations (0.0 – 1.0).
-      - ``flaky``          (bool)  — True when 0 < failure_rate < 1.0
-                                     (i.e. the test *sometimes* fails).
-      - ``always_fails``   (bool)  — True when every run failed (likely a
-                                     deterministic bug, not flakiness).
-      - ``run_outputs``    (list)  — [{returncode, stdout, stderr}] per run.
+      - ``iterations``   (int)   -- number of runs requested.
+      - ``failures``     (int)   -- runs that exited non-zero.
+      - ``failure_rate`` (float) -- failures / iterations (0.0 to 1.0).
+      - ``flaky``        (bool)  -- True when 0 < failure_rate < 1.0.
+      - ``always_fails`` (bool)  -- True when every run failed.
+      - ``run_outputs``  (list)  -- [{returncode, stdout, stderr}] per run.
     """
     args = shlex.split(test_command)
     run_outputs: list[dict] = []
@@ -116,13 +137,11 @@ def run_generic_test(repo_path: str, test_command: str, iterations: int = 10) ->
             text=True,
             timeout=300,
         )
-        run_outputs.append(
-            {
-                "returncode": proc.returncode,
-                "stdout": proc.stdout[-4000:],   # cap at 4 kB to stay within LLM context
-                "stderr": proc.stderr[-2000:],
-            }
-        )
+        run_outputs.append({
+            "returncode": proc.returncode,
+            "stdout": proc.stdout[-4000:],
+            "stderr": proc.stderr[-2000:],
+        })
         if proc.returncode != 0:
             failures += 1
 
@@ -137,7 +156,6 @@ def run_generic_test(repo_path: str, test_command: str, iterations: int = 10) ->
     }
 
 
-@tool
 def filter_async_git_diff(repo_path: str) -> str:
     """Return the subset of the latest git diff that touches concurrency code.
 
@@ -156,13 +174,11 @@ def filter_async_git_diff(repo_path: str) -> str:
     if result.returncode != 0:
         return f"[git diff error]\n{result.stderr}"
 
-    diff_text = result.stdout
     relevant_lines: list[str] = []
     in_relevant_hunk = False
 
-    for line in diff_text.splitlines(keepends=True):
+    for line in result.stdout.splitlines(keepends=True):
         if line.startswith("@@"):
-            # New hunk boundary — reset and re-evaluate from this line.
             in_relevant_hunk = False
         if any(pat in line for pat in _ASYNC_THREAD_PATTERNS):
             in_relevant_hunk = True
@@ -172,11 +188,9 @@ def filter_async_git_diff(repo_path: str) -> str:
     return "".join(relevant_lines)
 
 
-@tool
 def read_source_code(file_path: str) -> str:
     """Read and return the raw text of *file_path*.
 
-    Language-agnostic — works for Python, Java, JavaScript, Go, etc.
     Returns the file contents as a plain string, or an error message if the
     file cannot be read.
     """
@@ -187,11 +201,10 @@ def read_source_code(file_path: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Write tools
+# Write helpers
 # ---------------------------------------------------------------------------
 
 
-@tool
 def write_fixed_code(file_path: str, new_code: str) -> str:
     """Overwrite *file_path* with *new_code*.
 
@@ -203,12 +216,11 @@ def write_fixed_code(file_path: str, new_code: str) -> str:
     return f"Written {line_count} lines to {file_path}"
 
 
-@tool
 def create_markdown_docs(content: str) -> str:
     """Write *content* as a timestamped markdown bug-report.
 
-    The file is placed under ``flaky_debug/reports/`` relative to the project
-    root.  Returns the absolute path of the written file.
+    The file is placed under ``flaky_debug/reports/`` relative to the
+    project root.  Returns the absolute path of the written file.
     """
     report_dir = _REPORT_DIR / "reports"
     report_dir.mkdir(parents=True, exist_ok=True)
@@ -217,7 +229,7 @@ def create_markdown_docs(content: str) -> str:
     filepath = report_dir / f"bug_report_{timestamp}.md"
 
     header = textwrap.dedent(f"""\
-        # Flaky Debug — Bug Report
+        # Flaky Debug -- Bug Report
         **Generated:** {datetime.now().isoformat()}
 
         ---
