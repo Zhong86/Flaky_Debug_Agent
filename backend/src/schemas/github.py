@@ -49,7 +49,7 @@ class WorkflowRunEvent(_GitHubModel):
 
 class WebhookAck(BaseModel):
     received: bool = True
-    action: Literal["rerun_dispatched", "analysis_scheduled", "ignored"]
+    action: Literal["rerun_scheduled", "analysis_scheduled", "ignored"]
     reason: str | None = None
     thread_id: str | None = None
 
@@ -60,6 +60,6 @@ class JUnitIngest(BaseModel):
     repository: str = Field(pattern=r"^[\w.-]+/[\w.-]+$", examples=["octocat/Hello-World"])
     run_id: str = Field(min_length=1, description="Becomes the dashboard thread_id.")
     branch: str = ""
-    head_sha: str = ""
+    sha: str = ""
     run_url: str = ""
     reports: dict[int, list[str]] = Field(min_length=1)

@@ -13,6 +13,7 @@ from core.security import sign_github_payload
 
 JUNIT_DIR = Path(__file__).parent / "fixtures" / "junit"
 WEBHOOK_SECRET = "test-webhook-secret"
+GITHUB_TOKEN = "ghp_test_personal_access_token"
 INSTALLATION_TOKEN = "ghs_test_installation_token"
 
 
@@ -29,11 +30,12 @@ def make_zip(files: dict[str, bytes]) -> bytes:
 
 
 class FakeGitHub:
-    """Just enough of the GitHub REST API for the webhook flow, served via MockTransport."""
+    """Just enough of the GitHub REST API for the rerun flow, served via MockTransport."""
 
     def __init__(self) -> None:
         self.requests: list[httpx.Request] = []
         self.runs: dict[int, dict[str, Any]] = {}
+        self.workflow_runs: list[dict[str, Any]] = []  # GET .../workflows/<file>/runs
         self.artifacts: dict[int, list[dict[str, Any]]] = {}
         self.blobs: dict[str, bytes] = {}
         self.dispatch_status = 204
@@ -55,6 +57,11 @@ class FakeGitHub:
             if r.method == method and re.fullmatch(path_pattern, r.url.path)
         ]
 
+    def dispatches(self) -> list[dict[str, Any]]:
+        """Bodies of every workflow_dispatch request, in order."""
+        pattern = r"/repos/[^/]+/[^/]+/actions/workflows/[^/]+/dispatches"
+        return [json.loads(r.content) for r in self.calls("POST", pattern)]
+
     def handler(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
         path = request.url.path
@@ -65,6 +72,8 @@ class FakeGitHub:
             return httpx.Response(201, json=token)
         if re.fullmatch(r"/repos/[^/]+/[^/]+/actions/workflows/[^/]+/dispatches", path):
             return httpx.Response(self.dispatch_status)
+        if re.fullmatch(r"/repos/[^/]+/[^/]+/actions/workflows/[^/]+/runs", path):
+            return httpx.Response(200, json={"workflow_runs": self.workflow_runs})
         if match := re.fullmatch(r"/repos/[^/]+/[^/]+/actions/runs/(\d+)/artifacts", path):
             artifacts = self.artifacts.get(int(match.group(1)), [])
             return httpx.Response(200, json={"total_count": len(artifacts), "artifacts": artifacts})
@@ -120,6 +129,8 @@ def workflow_run(
     display_title: str = "Fix inventory race",
     head_repository: str = "acme/shop",
     run_attempt: int = 1,
+    status: str = "completed",
+    created_at: str = "2099-01-01T00:00:00Z",
 ) -> dict[str, Any]:
     return {
         "id": run_id,
@@ -127,9 +138,10 @@ def workflow_run(
         "display_title": display_title,
         "head_branch": "feature/inventory",
         "head_sha": "abc123def",
-        "status": "completed",
+        "status": status,
         "conclusion": conclusion,
         "run_attempt": run_attempt,
+        "created_at": created_at,
         "html_url": f"https://github.com/acme/shop/actions/runs/{run_id}",
         "event": "pull_request",
         "pull_requests": [{"number": 7, "url": "https://api.github.com/repos/acme/shop/pulls/7"}],
@@ -137,15 +149,10 @@ def workflow_run(
     }
 
 
-def workflow_run_event(
-    run: dict[str, Any], *, action: str = "completed", installation: bool = True
-) -> dict[str, Any]:
-    event: dict[str, Any] = {
+def workflow_run_event(run: dict[str, Any], *, action: str = "completed") -> dict[str, Any]:
+    return {
         "action": action,
         "workflow_run": run,
         "repository": {"full_name": "acme/shop", "default_branch": "main", "private": True},
         "sender": {"login": "octocat"},
     }
-    if installation:
-        event["installation"] = {"id": 99}
-    return event

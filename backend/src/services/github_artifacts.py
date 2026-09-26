@@ -1,88 +1,101 @@
-"""Downloading and parsing JUnit XML artifacts off a GitHub Actions run."""
+"""Downloading and parsing JUnit XML artifacts off a GitHub Actions run.
+
+Artifacts are read in memory — only their `.xml` members, within MAX_ARTIFACT_BYTES —
+so nothing lands on disk and a huge build artifact can't exhaust the server.
+Parsing lives in services/junit.py; it's re-exported here under the names the
+rest of the backend already imports.
+"""
 
 import io
-import tempfile
-import xml.etree.ElementTree as ET
+import logging
+import re
 import zipfile
-from pathlib import Path
 
 import httpx
 
 from core.config import get_settings
+from services.github_client import github_client
+from services.junit import parse_failed_test_ids, parse_junit_results
+
+__all__ = [
+    "RERUN_ARTIFACT_PREFIX",
+    "download_rerun_artifacts",
+    "download_run_artifacts",
+    "parse_failed_test_ids",
+    "parse_junit_results",
+]
+
+logger = logging.getLogger(__name__)
+
+# flaky-rerun.yml uploads one artifact per matrix attempt: rerun-attempt-<n>.
+RERUN_ARTIFACT_PREFIX = "rerun-attempt-"
+_ATTEMPT_SUFFIX = re.compile(r"-attempt-(\d+)$")
+_PER_PAGE = 100
+_MAX_PAGES = 10
 
 
-def _headers() -> dict:
-    settings = get_settings()
-    return {
-        "Authorization": f"Bearer {settings.github_token}",
-        "Accept": "application/vnd.github+json",
-    }
-
-
-def _pytest_node_id(testcase: ET.Element) -> str:
-    """Best-effort JUnit classname -> pytest node ID (tests/test_x.py::test_y).
-
-    Breaks for a test class nested inside a module (classname becomes
-    "module.ClassName", which this treats as a literal path segment) — fine
-    for the common flat-function case; a real implementation needs the
-    framework's own name resolution, not string surgery.
-    """
-    classname = testcase.get("classname", "")
-    name = testcase.get("name", "")
-    path = classname.replace(".", "/") + ".py"
-    return f"{path}::{name}"
-
-
-async def download_run_artifacts(repo: str, run_id: int) -> list[Path]:
-    """Download every artifact attached to a run and return local paths to the XML files inside."""
-    dest_dir = Path(tempfile.mkdtemp(prefix="flaky-artifacts-"))
-    xml_paths: list[Path] = []
-
-    async with httpx.AsyncClient(
-        base_url=get_settings().github_api_base, follow_redirects=True, timeout=30
-    ) as client:
-        resp = await client.get(f"/repos/{repo}/actions/runs/{run_id}/artifacts", headers=_headers())
+async def _list_artifacts(client: httpx.AsyncClient, repo: str, run_id: int) -> list[dict]:
+    artifacts: list[dict] = []
+    for page in range(1, _MAX_PAGES + 1):
+        resp = await client.get(
+            f"/repos/{repo}/actions/runs/{run_id}/artifacts",
+            params={"per_page": _PER_PAGE, "page": page},
+        )
         resp.raise_for_status()
-
-        for artifact in resp.json()["artifacts"]:
-            zip_resp = await client.get(
-                f"/repos/{repo}/actions/artifacts/{artifact['id']}/zip", headers=_headers()
-            )
-            zip_resp.raise_for_status()
-            with zipfile.ZipFile(io.BytesIO(zip_resp.content)) as zf:
-                zf.extractall(dest_dir)
-                xml_paths += [dest_dir / name for name in zf.namelist() if name.endswith(".xml")]
-
-    return xml_paths
+        batch = resp.json()["artifacts"]
+        artifacts += batch
+        if len(batch) < _PER_PAGE:
+            break
+    return artifacts
 
 
-# Kept as the name webhooks.py already imports — same thing, one rerun's worth of artifacts.
-download_rerun_artifacts = download_run_artifacts
+def _xml_files(archive: bytes, budget: int) -> tuple[list[bytes], int]:
+    """The XML members of an artifact zip that fit in *budget* bytes, and what's left of it."""
+    files: list[bytes] = []
+    with zipfile.ZipFile(io.BytesIO(archive)) as zf:
+        for info in zf.infolist():
+            if info.is_dir() or not info.filename.lower().endswith(".xml"):
+                continue
+            if info.file_size > budget:
+                logger.warning("Skipping %s: over the JUnit size budget", info.filename)
+                continue
+            budget -= info.file_size
+            files.append(zf.read(info))
+    return files, budget
 
 
-def parse_junit_results(xml_paths: list[Path]) -> list[dict]:
-    """Aggregate N rerun-attempt XML files into per-test pass/fail tallies.
+async def download_run_artifacts(
+    repo: str, run_id: int, name_prefix: str = ""
+) -> dict[int, list[bytes]]:
+    """JUnit XML files attached to a run, grouped by attempt number.
 
-    [{"test_id": "tests/test_x.py::test_y", "attempts": 5, "passed": 3, "failed": 2}]
+    Artifacts named `...-attempt-<n>` count as attempt n; any other artifact is
+    attempt 0 — for a regular CI run, its one real execution. Only artifacts whose
+    name starts with *name_prefix* are fetched (all of them by default).
     """
-    tally: dict[str, dict] = {}
-    for path in xml_paths:
-        root = ET.parse(path).getroot()
-        for testcase in root.iter("testcase"):
-            test_id = _pytest_node_id(testcase)
-            entry = tally.setdefault(test_id, {"test_id": test_id, "attempts": 0, "passed": 0, "failed": 0})
-            entry["attempts"] += 1
-            failed = testcase.find("failure") is not None or testcase.find("error") is not None
-            entry["failed" if failed else "passed"] += 1
-    return list(tally.values())
+    budget = get_settings().max_artifact_bytes
+    reports: dict[int, list[bytes]] = {}
+
+    async with github_client() as client:
+        for artifact in await _list_artifacts(client, repo, run_id):
+            name = artifact["name"]
+            if not name.startswith(name_prefix) or artifact.get("expired"):
+                continue
+            if artifact.get("size_in_bytes", 0) > budget:
+                logger.warning("Skipping artifact %s of run %s: over the size budget", name, run_id)
+                continue
+
+            zip_resp = await client.get(f"/repos/{repo}/actions/artifacts/{artifact['id']}/zip")
+            zip_resp.raise_for_status()
+            files, budget = _xml_files(zip_resp.content, budget)
+            if not files:
+                continue
+            match = _ATTEMPT_SUFFIX.search(name)
+            reports.setdefault(int(match.group(1)) if match else 0, []).extend(files)
+
+    return reports
 
 
-def parse_failed_test_ids(xml_paths: list[Path]) -> list[str]:
-    """Pull just the failing pytest node IDs out of a (usually single) JUnit XML file."""
-    failed_ids: list[str] = []
-    for path in xml_paths:
-        root = ET.parse(path).getroot()
-        for testcase in root.iter("testcase"):
-            if testcase.find("failure") is not None or testcase.find("error") is not None:
-                failed_ids.append(_pytest_node_id(testcase))
-    return failed_ids
+async def download_rerun_artifacts(repo: str, run_id: int) -> dict[int, list[bytes]]:
+    """One flaky-rerun.yml run's worth of artifacts: `rerun-attempt-<n>` → attempt n."""
+    return await download_run_artifacts(repo, run_id, name_prefix=RERUN_ARTIFACT_PREFIX)

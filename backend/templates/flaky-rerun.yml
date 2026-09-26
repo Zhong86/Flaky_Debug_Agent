@@ -1,12 +1,18 @@
 # Added to a connected repo's .github/workflows/ during onboarding (via PR, never
 # a direct commit). Dispatched by our backend through the GitHub API — see
-# services/github_dispatch.py:rerun_and_wait. Not triggered by push/PR; only by
-# workflow_dispatch, so it never runs unless we explicitly ask for it.
+# services/github_dispatch.py (trigger_rerun_workflow, rerun_and_wait). Not
+# triggered by push/PR; only by workflow_dispatch, so it never runs unless we
+# explicitly ask for it. Must live on the default branch: phase A dispatches there.
 #
 # MVP scope: pytest only. A real multi-language setup swaps the "Install
 # dependencies" / "Rerun targeted tests" steps per repo (setup-node + jest,
 # setup-go + gotestsum, etc.) — see the framework input.
 name: Flaky Rerun
+# The backend reads this back (services/github_dispatch.py:parse_rerun_title) to
+# find the run it dispatched and to tell first reruns ("detect", analysed by the
+# webhook) from fix verifications ("retest", awaited by the retest_flaky node).
+# Keep the two in sync.
+run-name: "Flaky Rerun (${{ inputs.purpose }}) #${{ inputs.original_run_id }} @ ${{ inputs.sha }}"
 
 on:
   workflow_dispatch:
@@ -25,22 +31,41 @@ on:
         description: "How many isolated reruns to attempt"
         required: false
         default: "5"
+      original_run_id:
+        description: "ID of the failed CI run being investigated (empty for retests)"
+        required: false
+        default: ""
+      purpose:
+        description: "detect = first rerun of a CI failure, retest = verifying a fix"
+        required: false
+        default: "detect"
 
 jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      attempts: ${{ steps.matrix.outputs.attempts }}
+    steps:
+      - id: matrix
+        env:
+          ATTEMPTS: ${{ inputs.attempts }}
+        run: python3 -c 'import json, os; print("attempts=" + json.dumps(list(range(1, int(os.environ["ATTEMPTS"]) + 1))))' >> "$GITHUB_OUTPUT"
+
   rerun:
+    needs: plan
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         # Each attempt gets its own fresh VM — deliberate, so environment-
         # dependent flakes (timing, cold caches) aren't masked by shared state.
-        attempt: [1, 2, 3, 4, 5]
+        attempt: ${{ fromJSON(needs.plan.outputs.attempts) }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.sha }}
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.x"
 
@@ -48,21 +73,29 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Rerun targeted tests
+        # Inputs arrive through env, never spliced into the script text, so a
+        # crafted test ID can't break out of the Python below.
+        env:
+          TEST_IDS: ${{ inputs.test_ids }}
+          ATTEMPT: ${{ matrix.attempt }}
         run: |
           python - <<'PYEOF'
-          import json, subprocess, sys
+          import json, os, subprocess, sys
 
-          test_ids = json.loads('''${{ inputs.test_ids }}''')
-          result = subprocess.run(
-              ["pytest", *test_ids, "--junitxml=rerun-${{ matrix.attempt }}.xml"]
-          )
+          test_ids = json.loads(os.environ["TEST_IDS"])
+          result = subprocess.run([
+              "pytest", *test_ids,
+              # xunit1 records each test's file, so the backend gets exact node IDs.
+              "-o", "junit_family=xunit1",
+              f"--junitxml=rerun-{os.environ['ATTEMPT']}.xml",
+          ])
           sys.exit(result.returncode)
           PYEOF
         # A failing attempt is data we want, not a broken job — don't let it
         # block the artifact upload below.
         continue-on-error: true
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: rerun-attempt-${{ matrix.attempt }}

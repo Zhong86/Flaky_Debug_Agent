@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="3" time="0.210" timestamp="2026-09-26T10:00:00.000000+00:00" hostname="runner"><testcase classname="tests.test_cart.TestCart" name="test_add[2-3]" file="tests/test_cart.py" line="11" time="0.120"><failure message="assert 4 == 5">self = &lt;tests.test_cart.TestCart object&gt;
+&gt;       assert cart.total == 5
+E       assert 4 == 5
+
+tests/test_cart.py:15: AssertionError</failure></testcase><testcase classname="tests.test_cart" name="test_empty" file="tests/test_cart.py" line="3" time="0.010" /><testcase classname="test_checkout" name="test_pay" file="tests/test_checkout.py" line="7" time="0.020" /></testsuite></testsuites>
