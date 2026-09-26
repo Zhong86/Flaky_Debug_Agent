@@ -8,12 +8,16 @@ from graph.graph import graph
 
 initial_state = {
     "github_payload": {
-        "repository": "my-org/my-repo",
+        "repository": "octocat/Hello-World",
         "run_id": "12345",
-        "branch": "main",
+        "branch": "",
     },
     "logs": "FAILED tests/test_example.py::test_flaky_feature - AssertionError",
+    "rerun_results": [
+        {"test_id": "tests/test_example.py::test_flaky_feature", "attempts": 5, "passed": 3, "failed": 2}
+    ],
     "is_flaky": False,
+    "repo_path": "",
     "debug_findings": "",
     "fix_applied": False,
     "retest_passed": False,

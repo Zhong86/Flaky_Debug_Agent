@@ -9,6 +9,7 @@ class Settings(BaseSettings):
     app_name: str = "Flaky Debug Agent API"
     debug: bool = False
     cors_origins: list[str] = ["http://localhost:3000"]
+    database_url: str = "postgresql://postgres:postgres@localhost:55432/flaky_debug"
 
 
 @lru_cache
