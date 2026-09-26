@@ -48,6 +48,8 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 
+import subprocess
+
 from graph.state import GraphState
 from graph.tools import (
     call_ibm_bob_cli,
@@ -136,6 +138,29 @@ def investigator_agents(state: GraphState) -> dict:
 # ---------------------------------------------------------------------------
 
 
+def _git_diff_stat(repo_path: str) -> tuple[bool, str]:
+    """Return (changed, summary) from ``git diff --stat`` inside *repo_path*.
+
+    *changed* is True when Bob modified at least one tracked file.
+    *summary* is a human-readable one-liner of what changed (for logging and
+    the documenter prompt), or an empty string when nothing was touched.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "-C", repo_path, "diff", "--stat"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        stat = result.stdout.strip()
+        # "git diff --stat" lists changed files; if stdout is non-empty at least
+        # one file has been modified relative to the working-tree index.
+        return bool(stat), stat
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        # git not available or timed out — fall back gracefully; treat as unknown.
+        return True, "(git diff unavailable)"
+
+
 def fixer_agent(state: GraphState) -> dict:
     """Delegate code fixing to IBM Bob CLI.
 
@@ -155,9 +180,10 @@ def fixer_agent(state: GraphState) -> dict:
 
     State updates
     -------------
-    ``fix_applied`` -- set to True when bob exits successfully.  The
-    caller (graph.nodes.code_fix) is responsible for committing and pushing
-    whatever Bob changed inside state["repo_path"].
+    ``fix_applied`` -- set to True when Bob exited cleanly **and** git reports
+    that at least one file was modified inside the working tree.  The caller
+    (graph.nodes.code_fix) is responsible for committing and pushing whatever
+    Bob changed inside state["repo_path"].
     """
     logs: str = state.get("logs", "")
     is_flaky: bool = state.get("is_flaky", False)
@@ -166,33 +192,75 @@ def fixer_agent(state: GraphState) -> dict:
     rerun_results: list[dict] = state.get("rerun_results", [])
     test_ids = ", ".join(r["test_id"] for r in rerun_results) or "(unknown)"
 
+    # Collect the test file paths so Bob knows exactly which source files to read
+    # before writing a fix — avoids edits to the wrong file or no edits at all.
+    test_files = sorted({
+        r["test_id"].split("::")[0] for r in rerun_results if "::" in r["test_id"]
+    })
+    test_files_section = (
+        "== RELEVANT SOURCE FILES ==\n"
+        + "\n".join(f"  {f}" for f in test_files)
+        + "\n"
+    ) if test_files else ""
+
     if is_flaky:
         context_section = (
             "== INVESTIGATION FINDINGS (Alpha / Beta / Gamma) ==\n"
-            f"{debug_findings or '(no findings available)'}"
+            f"{debug_findings or '(no findings available)'}\n"
         )
-        instruction = (
-            "The test suite was confirmed **flaky** (intermittent failures). "
-            "Three specialist sub-agents have investigated the root cause above. "
-            "Apply the minimal code fix that permanently eliminates the flakiness. "
-            "Do NOT refactor unrelated code."
+        task_section = (
+            "== YOUR TASK ==\n"
+            "The test suite is confirmed FLAKY (intermittent failures).\n"
+            "The investigation findings above identify the root cause.\n"
+            "Your job:\n"
+            "  1. Read every source file listed under RELEVANT SOURCE FILES above.\n"
+            "  2. Identify the exact lines responsible for the race / flakiness.\n"
+            "  3. Apply the MINIMAL code change that permanently eliminates it.\n"
+            "  4. Do NOT refactor, rename, or touch any code unrelated to the fix.\n"
+            "  5. You MUST write the change to disk before finishing — a text-only\n"
+            "     response with no file edits will be rejected.\n\n"
+            "== CONCURRENCY FIX RULES (apply when root cause is a race condition) ==\n"
+            "PREFERRED — synchronize the method:\n"
+            "  Mark the method `synchronized` (Java) / use a `threading.Lock` (Python) /\n"
+            "  `sync.Mutex` (Go). This serializes access and is always correct.\n\n"
+            "ALLOWED — lock-free CAS with a RETRY loop (AtomicInteger / atomic.Int32):\n"
+            "  A failed CAS means the shared value changed under you, NOT that the\n"
+            "  resource is exhausted. You MUST retry with a fresh read, not throw.\n"
+            "  Java example:\n"
+            "    int cur;\n"
+            "    do {\n"
+            "        cur = available.get();\n"
+            "        if (cur <= 0) throw new SeatOutOfStockException();\n"
+            "    } while (!available.compareAndSet(cur, cur - 1));\n\n"
+            "FORBIDDEN — single-shot CAS that throws on failure:\n"
+            "  if (!available.compareAndSet(cur, cur - 1)) throw ...;  // WRONG\n"
+            "  This converts a benign scheduling race into a false exception and makes\n"
+            "  the test fail deterministically — worse than the original bug.\n"
         )
     else:
         context_section = (
             "== CI FAILURE LOGS ==\n"
-            f"{logs or '(none provided)'}"
+            f"{logs or '(none provided)'}\n"
         )
-        instruction = (
-            "The CI pipeline failed with a **deterministic** (non-flaky) error. "
-            "Review the logs above and apply the minimal fix directly."
+        task_section = (
+            "== YOUR TASK ==\n"
+            "The CI pipeline failed with a DETERMINISTIC (non-flaky) error.\n"
+            "Your job:\n"
+            "  1. Read every source file listed under RELEVANT SOURCE FILES above.\n"
+            "  2. Identify the exact root cause from the logs.\n"
+            "  3. Apply the MINIMAL fix directly — do not touch unrelated code.\n"
+            "  4. You MUST write the change to disk before finishing — a text-only\n"
+            "     response with no file edits will be rejected.\n"
         )
 
     prompt = (
-        "You are the Master Agent for a flaky-test debugging system.\n"
-        f"{instruction}\n\n"
-        f"Repository  : {repo_path}\n"
+        "You are the Master Agent for a flaky-test debugging system.\n\n"
+        "== REPOSITORY ==\n"
+        f"Path        : {repo_path}\n"
         f"Flaky tests : {test_ids}\n\n"
+        f"{test_files_section}"
         f"{context_section}\n"
+        f"{task_section}"
     )
 
     print(
@@ -201,14 +269,26 @@ def fixer_agent(state: GraphState) -> dict:
     )
 
     response = call_ibm_bob_cli(prompt, repo_path=repo_path, mode="agent")
-    fix_applied = not response.startswith("[bobshell error]")
 
-    if fix_applied:
-        print(f"[fixer_agent] Bob applied the fix. Response length: {len(response)} chars.")
-    else:
+    if response.startswith("[bobshell error]"):
         print(f"[fixer_agent] Bob CLI returned an error:\n{response[:300]}")
+        return {"fix_applied": False}
 
-    return {"fix_applied": fix_applied}
+    # Verify that Bob actually modified files — a clean exit without any edits
+    # means the prompt was misunderstood or Bob only responded with text.
+    files_changed, diff_stat = _git_diff_stat(repo_path)
+    if not files_changed:
+        print(
+            "[fixer_agent] Bob exited cleanly but made no file changes. "
+            "Treating as fix_applied=False so the caller does not push an empty commit."
+        )
+        return {"fix_applied": False}
+
+    print(
+        f"[fixer_agent] Fix verified — Bob modified files.\n"
+        f"  diff --stat:\n{diff_stat}"
+    )
+    return {"fix_applied": True}
 
 
 # ---------------------------------------------------------------------------
