@@ -34,8 +34,12 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
               <nav className="flex items-center gap-3 text-sm">
                 <Link
                   href="/demo"
-                  className="text-zinc-500 transition-colors hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+                  className="inline-flex items-center gap-2 rounded-full bg-emerald-600 px-3.5 py-1.5 font-medium text-white shadow-sm ring-1 ring-emerald-700/20 transition-colors hover:bg-emerald-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 dark:bg-emerald-500 dark:ring-emerald-400/30 dark:hover:bg-emerald-400 dark:hover:text-zinc-950"
                 >
+                  <span className="relative flex size-2">
+                    <span className="absolute inline-flex size-full animate-ping rounded-full bg-white/80" />
+                    <span className="relative inline-flex size-2 rounded-full bg-white" />
+                  </span>
                   Live Demo
                 </Link>
               </nav>
