@@ -43,12 +43,12 @@ function RunSummaryPanel({
 
   return (
     <div className="space-y-4">
-      {/* clone_repo writes "" when the checkout fails, which makes every downstream
-          agent conclusion suspect — call that out rather than burying it. */}
+      {/* clone_repo writes "" when the checkout fails, and the graph then skips straight
+          to output — call that out rather than burying it. */}
       {values.repo_path === "" ? (
         <div className="rounded-xl border border-orange-300 bg-orange-50 p-3 text-sm text-orange-900 dark:border-orange-500/30 dark:bg-orange-500/10 dark:text-orange-200">
-          <span className="font-medium">Repository clone failed.</span> The debug agent ran without a checkout, so
-          findings below may be unreliable.
+          <span className="font-medium">Repository clone failed.</span> The debug agent and code fix were skipped;
+          the clone step in the timeline shows git&apos;s error.
         </div>
       ) : null}
 
@@ -97,13 +97,6 @@ function RunSummaryPanel({
           </div>
         </Card>
       </div>
-
-      {values.debug_findings ? (
-        <Card className="p-4">
-          <SectionLabel>Debug agent findings</SectionLabel>
-          <p className="mt-2 text-sm leading-relaxed text-zinc-700 dark:text-zinc-300">{values.debug_findings}</p>
-        </Card>
-      ) : null}
 
       {values.document ? (
         <Card className="p-4">
