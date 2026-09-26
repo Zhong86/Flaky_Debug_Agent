@@ -4,7 +4,7 @@ agents.py -- LangGraph node functions for the Flaky Debug Agent.
 Architecture
 ------------
 The Python backend is a pure orchestrator.  All AI reasoning and code
-modification is delegated to the local IBM Bob CLI (bobshell) via
+modification is delegated to the local IBM Bob CLI (``bob run``) via
 ``call_ibm_bob_cli``.  There are no LLM libraries, no Watsonx SDK, and
 no langchain imports anywhere in this file.
 
@@ -17,38 +17,43 @@ investigator_agents(state)
     order-shuffler).  Passes the CI logs, the async git diff of the repo
     clone_repo checked out, and the source of each flaky test file (derived
     from state["rerun_results"]) to Bob and stores the response in
-    state["debug_findings"].
+    state["debug_findings"].  Runs Bob in "ask" mode -- pure read-only
+    investigation, no Edit or Execute access.
 
 fixer_agent(state)
     FIX step, called from graph.nodes.code_fix.  Builds a fix prompt from
     the debug_findings (flaky path) or raw CI logs (deterministic path) and
     tells Bob to apply the minimal code change directly inside
-    state["repo_path"].  Sets state["fix_applied"] = True on success; the
-    git branch/commit/push plumbing lives in graph.nodes.code_fix, not here.
+    state["repo_path"].  Runs Bob in "agent" mode (Edit + Execute) since it
+    needs to modify files and may need to run commands.  Sets
+    state["fix_applied"] = True on success; the git branch/commit/push
+    plumbing lives in graph.nodes.code_fix, not here.
 
 documenter_agent(state)
-    DOCUMENT step, called from graph.nodes.documents.  Asks Bob to write a
-    structured markdown bug-report from the full session state and persists
-    it with create_markdown_docs under flaky_debug/success or flaky_debug/fail
-    depending on state["retest_passed"].  Sets state["document"] to the
-    written file path.
+    DOCUMENT step, called from graph.nodes.documents.  Runs Bob in "plan"
+    mode (Edit, no Execute) with its workspace scoped to
+    flaky_debug/success/ or flaky_debug/fail/ (depending on
+    state["retest_passed"]) and asks it to write the bug-report markdown
+    file directly at a path we hand it.  Sets state["document"] to that
+    path.
 
 IBM Bob CLI
 -----------
-All intelligence comes from ``bobshell --prompt "<prompt>"`` run as a
-subprocess inside the repository directory.  See tools.call_ibm_bob_cli.
+All intelligence comes from ``bob run --mode <mode> ...`` run as a
+subprocess.  See tools.call_ibm_bob_cli.
 """
 
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 
 from graph.state import GraphState
 from graph.tools import (
     call_ibm_bob_cli,
-    create_markdown_docs,
     filter_async_git_diff,
     read_source_code,
+    report_dir,
 )
 
 
@@ -112,11 +117,11 @@ def investigator_agents(state: GraphState) -> dict:
     )
 
     print(
-        f"[investigator_agents] Calling bobshell | "
+        f"[investigator_agents] Calling bob (mode=ask) | "
         f"repo={repo_path} | tests={len(rerun_results)}"
     )
 
-    debug_findings = call_ibm_bob_cli(prompt, repo_path=repo_path)
+    debug_findings = call_ibm_bob_cli(prompt, repo_path=repo_path, mode="ask")
 
     print(
         f"[investigator_agents] Bob responded with "
@@ -134,9 +139,9 @@ def investigator_agents(state: GraphState) -> dict:
 def fixer_agent(state: GraphState) -> dict:
     """Delegate code fixing to IBM Bob CLI.
 
-    Builds a fix prompt and passes it to ``bobshell``.  Bob is responsible
-    for reading the relevant files and applying the minimal correct change
-    directly inside the repository working directory.
+    Builds a fix prompt and passes it to ``bob run --mode agent``.  Bob is
+    responsible for reading the relevant files and applying the minimal
+    correct change directly inside the repository working directory.
 
     Two source modes
     ----------------
@@ -150,7 +155,7 @@ def fixer_agent(state: GraphState) -> dict:
 
     State updates
     -------------
-    ``fix_applied`` -- set to True when bobshell exits successfully.  The
+    ``fix_applied`` -- set to True when bob exits successfully.  The
     caller (graph.nodes.code_fix) is responsible for committing and pushing
     whatever Bob changed inside state["repo_path"].
     """
@@ -191,11 +196,11 @@ def fixer_agent(state: GraphState) -> dict:
     )
 
     print(
-        f"[fixer_agent] Calling bobshell | "
-        f"mode={'flaky' if is_flaky else 'deterministic'} | repo={repo_path}"
+        f"[fixer_agent] Calling bob (mode=agent) | "
+        f"case={'flaky' if is_flaky else 'deterministic'} | repo={repo_path}"
     )
 
-    response = call_ibm_bob_cli(prompt, repo_path=repo_path)
+    response = call_ibm_bob_cli(prompt, repo_path=repo_path, mode="agent")
     fix_applied = not response.startswith("[bobshell error]")
 
     if fix_applied:
@@ -212,22 +217,27 @@ def fixer_agent(state: GraphState) -> dict:
 
 
 def documenter_agent(state: GraphState) -> dict:
-    """Ask IBM Bob CLI to write the final markdown bug-report.
+    """Ask IBM Bob CLI to write the final markdown bug-report directly.
 
-    Builds a prompt from the full session state and calls bobshell.
-    Bob's response is passed directly to create_markdown_docs which
-    persists it under flaky_debug/success/ or flaky_debug/fail/ depending
-    on state["retest_passed"].
+    Runs Bob in "plan" mode (Edit, no Execute) with its workspace scoped to
+    flaky_debug/success/ or flaky_debug/fail/ (depending on
+    state["retest_passed"]) and hands it the exact file path to create --
+    Bob writes the report itself instead of returning text for Python to
+    persist.
 
     Sets state["document"] to the written file path.
     """
-    repo_path: str = state.get("repo_path") or "."
     github_payload: dict = state.get("github_payload", {})
+    subfolder = "success" if state.get("retest_passed") else "fail"
+    output_dir = report_dir(subfolder)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    target_path = output_dir / f"bug_report_{timestamp}.md"
 
     prompt = (
         "You are a technical writer for a software engineering team.\n"
-        "Write a concise, well-structured markdown bug report that a developer "
-        "can immediately act on.  Include these sections:\n"
+        f"Create the file `{target_path.name}` with a concise, well-structured "
+        "markdown bug report that a developer can immediately act on.  Include "
+        "these sections:\n"
         "  1. Summary\n"
         "  2. Statistical Failure Baseline\n"
         "  3. Race Conditions Found\n"
@@ -248,16 +258,17 @@ def documenter_agent(state: GraphState) -> dict:
         f"{state.get('logs', '(none)')}\n"
     )
 
-    print(f"[documenter_agent] Calling bobshell for bug report | repo={repo_path}")
+    print(f"[documenter_agent] Calling bob (mode=plan) | target={target_path}")
 
-    response = call_ibm_bob_cli(prompt, repo_path=repo_path)
-    subfolder = "success" if state.get("retest_passed") else "fail"
+    response = call_ibm_bob_cli(prompt, repo_path=str(output_dir), mode="plan")
 
     if response.startswith("[bobshell error]"):
         print(f"[documenter_agent] Bob CLI error: {response[:200]}")
-        document_path = response
-    else:
-        document_path = create_markdown_docs(response, subfolder=subfolder)
-        print(f"[documenter_agent] Document written to: {document_path}")
+        return {"document": response}
 
-    return {"document": document_path}
+    if not target_path.exists():
+        print(f"[documenter_agent] Bob did not create {target_path}")
+        return {"document": f"[documenter_agent error] {target_path} was not created"}
+
+    print(f"[documenter_agent] Document written to: {target_path}")
+    return {"document": str(target_path)}

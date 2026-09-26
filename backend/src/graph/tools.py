@@ -1,14 +1,15 @@
 """
 tools.py -- Pure-Python helper functions for the Flaky Debug Agent.
 
-All AI reasoning is delegated to the local IBM Bob CLI (bobshell).
+All AI reasoning is delegated to the local IBM Bob CLI (``bob``, Bob Shell).
 No LLM libraries, no langchain, no Watsonx SDK -- only stdlib.
 
 Functions
 ---------
-call_ibm_bob_cli(prompt, repo_path)
-    Core function: invokes ``bobshell`` as a subprocess and returns its
-    stdout.  Every agent node calls this to drive all intelligence.
+call_ibm_bob_cli(prompt, repo_path, mode)
+    Core function: invokes ``bob run --mode <mode> --workspace <repo_path>``
+    as a subprocess and returns Bob's final response text.  Every agent node
+    calls this to drive all intelligence.
 
 run_generic_test(repo_path, test_command, iterations)
     Run a test command N times, return a statistical failure-rate summary.
@@ -22,16 +23,17 @@ read_source_code(file_path)
 write_fixed_code(file_path, new_code)
     Overwrite a file with corrected source code.
 
-create_markdown_docs(content, subfolder)
-    Write a timestamped markdown bug-report to flaky_debug/<subfolder>/.
+report_dir(subfolder)
+    Ensure and return the flaky_debug/<subfolder> directory that
+    documenter_agent asks Bob to write its report into directly.
 """
 
 from __future__ import annotations
 
+import json
+import os
 import shlex
 import subprocess
-import textwrap
-from datetime import datetime
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -61,7 +63,7 @@ _ASYNC_THREAD_PATTERNS = (
 )
 
 # Where markdown reports land (relative to project root).
-_REPORT_DIR = Path(__file__).parents[3] / "flaky_debug"
+REPORTS_ROOT = Path(__file__).parents[3] / "flaky_debug"
 
 
 # ---------------------------------------------------------------------------
@@ -69,33 +71,50 @@ _REPORT_DIR = Path(__file__).parents[3] / "flaky_debug"
 # ---------------------------------------------------------------------------
 
 
-def call_ibm_bob_cli(prompt: str, repo_path: str = ".") -> str:
-    """Invoke the local IBM Bob CLI (``bobshell``) with *prompt*.
+def call_ibm_bob_cli(prompt: str, repo_path: str = ".", mode: str = "agent") -> str:
+    """Invoke the local IBM Bob CLI (``bob run``) with *prompt* in *mode*.
 
     Runs::
 
-        bobshell --prompt "<prompt>"
+        bob run --mode <mode> --workspace <repo_path> --format json "<prompt>"
 
-    inside *repo_path* so Bob has the correct working directory context.
+    *mode* controls what Bob is allowed to do (see bob.ibm.com/docs/ide/features/modes):
+      - ``"ask"``   -- read-only investigation, no Edit or Execute.
+      - ``"plan"``  -- Edit but not Execute; can create/modify files directly.
+      - ``"agent"`` -- full Edit + Execute; can run commands and multi-file edits.
+
+    Requires ``BOB_API_KEY`` (and ``BOB_TEAM_ID`` for general-type keys) in
+    the environment -- see backend/.env.example.
 
     Returns
     -------
     str
-        Bob's full stdout response, or an error message prefixed with
-        ``[bobshell error]`` when the process exits non-zero or the
-        binary is not found.
+        Bob's final response text, or an error message prefixed with
+        ``[bobshell error]`` when the process exits non-zero, times out, or
+        the binary is not found.
     """
+    cmd = [
+        "bob", "run",
+        "--mode", mode,
+        "--workspace", repo_path,
+        "--format", "json",
+        "--accept-license",
+        prompt,
+    ]
+    team_id = os.environ.get("BOB_TEAM_ID")
+    if team_id:
+        cmd += ["--team-id", team_id]
+
     try:
         result = subprocess.run(
-            ["bob.cmd", "run", "--accept-license", prompt],
-            cwd=repo_path,
+            cmd,
             capture_output=True,
             text=True,
             timeout=300,
         )
     except FileNotFoundError:
         return (
-            "[bobshell error] 'bobshell' binary not found. "
+            "[bobshell error] 'bob' binary not found. "
             "Make sure the IBM Bob CLI is installed and on PATH."
         )
     except subprocess.TimeoutExpired:
@@ -108,7 +127,16 @@ def call_ibm_bob_cli(prompt: str, repo_path: str = ".") -> str:
             f"stderr: {stderr_snippet}"
         )
 
-    return result.stdout
+    try:
+        payload = json.loads(result.stdout)
+    except ValueError:
+        return result.stdout.strip()
+
+    if isinstance(payload, dict):
+        for key in ("last_message", "message", "result", "output", "text"):
+            if payload.get(key):
+                return payload[key]
+    return result.stdout.strip()
 
 
 # ---------------------------------------------------------------------------
@@ -220,24 +248,12 @@ def write_fixed_code(file_path: str, new_code: str) -> str:
     return f"Written {line_count} lines to {file_path}"
 
 
-def create_markdown_docs(content: str, subfolder: str = "reports") -> str:
-    """Write *content* as a timestamped markdown bug-report.
+def report_dir(subfolder: str = "reports") -> Path:
+    """Ensure and return the ``flaky_debug/<subfolder>`` directory.
 
-    The file is placed under ``flaky_debug/<subfolder>/`` relative to the
-    project root.  Returns the absolute path of the written file.
+    documenter_agent runs Bob in "plan" mode with this as its workspace, so
+    Bob can write the bug-report file into it directly.
     """
-    report_dir = _REPORT_DIR / subfolder
-    report_dir.mkdir(parents=True, exist_ok=True)
-
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    filepath = report_dir / f"bug_report_{timestamp}.md"
-
-    header = textwrap.dedent(f"""\
-        # Flaky Debug -- Bug Report
-        **Generated:** {datetime.now().isoformat()}
-
-        ---
-
-        """)
-    filepath.write_text(header + content, encoding="utf-8")
-    return str(filepath)
+    path = REPORTS_ROOT / subfolder
+    path.mkdir(parents=True, exist_ok=True)
+    return path
