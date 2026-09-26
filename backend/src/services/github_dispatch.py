@@ -8,6 +8,7 @@ retest_flaky is already waiting on itself ("retest").
 """
 
 import asyncio
+import base64
 import json
 import re
 from datetime import UTC, datetime
@@ -22,6 +23,19 @@ from services.github_artifacts import (
     parse_junit_results,
 )
 from services.github_client import github_client
+
+# Unambiguous root-level marker files → the framework input flaky-rerun.yml expects
+# (backend/templates/flaky-rerun.yml). Checked in order; first match wins.
+_FRAMEWORK_MARKERS: tuple[tuple[str, str], ...] = (
+    ("go.mod", "go"),
+    ("pom.xml", "maven"),
+    ("Gemfile", "rspec"),
+    ("requirements.txt", "pytest"),
+    ("pyproject.toml", "pytest"),
+    ("setup.py", "pytest"),
+    ("setup.cfg", "pytest"),
+    ("Pipfile", "pytest"),
+)
 
 RERUN_WORKFLOW_FILE = "flaky-rerun.yml"
 RERUN_WORKFLOW_NAME = "Flaky Rerun"
@@ -164,6 +178,37 @@ async def rerun_and_wait(
     return parse_junit_results(await download_rerun_artifacts(repo, run_id, installation_id=installation_id))
 
 
+async def detect_framework(repo: str, ref: str, installation_id: int | None = None) -> str:
+    """Best-effort framework guess for flaky-rerun.yml's `framework` input.
+
+    There's no persisted per-repo config to read yet, so this looks at the repo's
+    root files instead: unambiguous markers (go.mod, pom.xml, Gemfile, ...) settle
+    it outright; `package.json` needs its own dependency list to tell jest from
+    vitest. Falls back to "pytest" — flaky-rerun.yml's own default — when the repo
+    listing is unreadable or nothing matches, rather than failing the dispatch.
+    """
+    async with await github_client(installation_id) as client:
+        resp = await client.get(f"/repos/{repo}/contents", params={"ref": ref})
+        if resp.status_code != 200:
+            return "pytest"
+        names = {entry["name"] for entry in resp.json() if entry.get("type") == "file"}
+
+        for marker, framework in _FRAMEWORK_MARKERS:
+            if marker in names:
+                return framework
+        if any(name.endswith((".csproj", ".sln")) for name in names):
+            return "dotnet"
+        if "package.json" in names:
+            pkg_resp = await client.get(f"/repos/{repo}/contents/package.json", params={"ref": ref})
+            if pkg_resp.status_code == 200:
+                pkg = json.loads(base64.b64decode(pkg_resp.json()["content"]))
+                deps = {**pkg.get("dependencies", {}), **pkg.get("devDependencies", {})}
+                if "vitest" in deps:
+                    return "vitest"
+                return "jest"
+    return "pytest"
+
+
 async def trigger_rerun_workflow(
     repo: str, run: WorkflowRun, default_branch: str, installation_id: int | None = None
 ) -> list[str]:
@@ -181,6 +226,7 @@ async def trigger_rerun_workflow(
     if not failed_test_ids:
         return []
 
+    framework = await detect_framework(repo, run.head_sha, installation_id=installation_id)
     await dispatch_workflow(
         repo,
         RERUN_WORKFLOW_FILE,
@@ -188,7 +234,7 @@ async def trigger_rerun_workflow(
         inputs={
             "sha": run.head_sha,
             "test_ids": json.dumps(failed_test_ids),
-            "framework": "pytest",  # TODO: look up per-repo framework from the install config
+            "framework": framework,
             "attempts": str(get_settings().rerun_attempts),
             "original_run_id": str(run.id),
             "purpose": "detect",

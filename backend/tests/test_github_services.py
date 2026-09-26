@@ -218,6 +218,76 @@ async def test_trigger_does_nothing_without_failing_junit(fake_github: FakeGitHu
     assert fake_github.dispatches() == []
 
 
+# --- framework detection --------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("marker", "framework"),
+    [
+        ("go.mod", "go"),
+        ("pom.xml", "maven"),
+        ("Gemfile", "rspec"),
+        ("requirements.txt", "pytest"),
+        ("pyproject.toml", "pytest"),
+    ],
+)
+async def test_detect_framework_matches_root_markers(
+    fake_github: FakeGitHub, marker: str, framework: str
+) -> None:
+    fake_github.set_repo_tree("README.md", marker)
+
+    assert await github_dispatch.detect_framework(REPO, "abc123def") == framework
+
+
+async def test_detect_framework_matches_csproj_anywhere_in_the_root_listing(
+    fake_github: FakeGitHub,
+) -> None:
+    fake_github.set_repo_tree("Shop.Tests.csproj", "Shop.sln")
+
+    assert await github_dispatch.detect_framework(REPO, "abc123def") == "dotnet"
+
+
+async def test_detect_framework_reads_package_json_for_vitest_vs_jest(
+    fake_github: FakeGitHub,
+) -> None:
+    fake_github.set_repo_tree("package.json")
+    fake_github.set_repo_file("package.json", json.dumps({"devDependencies": {"vitest": "^2"}}).encode())
+
+    assert await github_dispatch.detect_framework(REPO, "abc123def") == "vitest"
+
+
+async def test_detect_framework_defaults_package_json_to_jest(fake_github: FakeGitHub) -> None:
+    fake_github.set_repo_tree("package.json")
+    fake_github.set_repo_file("package.json", json.dumps({"dependencies": {"jest": "^29"}}).encode())
+
+    assert await github_dispatch.detect_framework(REPO, "abc123def") == "jest"
+
+
+async def test_detect_framework_falls_back_to_pytest_when_nothing_matches(
+    fake_github: FakeGitHub,
+) -> None:
+    fake_github.set_repo_tree("README.md", "LICENSE")
+
+    assert await github_dispatch.detect_framework(REPO, "abc123def") == "pytest"
+
+
+async def test_detect_framework_falls_back_to_pytest_when_repo_listing_is_unreadable(
+    fake_github: FakeGitHub,
+) -> None:
+    assert await github_dispatch.detect_framework(REPO, "abc123def") == "pytest"
+
+
+async def test_trigger_dispatches_the_detected_framework(fake_github: FakeGitHub) -> None:
+    fake_github.add_artifact(111, "junit-results", make_zip({"r.xml": junit("pytest.xml")}))
+    fake_github.set_repo_tree("pom.xml")
+    run = WorkflowRun.model_validate(workflow_run(run_id=111))
+
+    await github_dispatch.trigger_rerun_workflow(REPO, run, "main")
+
+    [dispatch] = fake_github.dispatches()
+    assert dispatch["inputs"]["framework"] == "maven"
+
+
 async def test_find_dispatched_run_matches_the_run_name(fake_github: FakeGitHub) -> None:
     ours = github_dispatch.rerun_title("retest", "", "f1x")
     fake_github.workflow_runs = [

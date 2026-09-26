@@ -1,3 +1,4 @@
+import base64
 import io
 import json
 import re
@@ -38,9 +39,17 @@ class FakeGitHub:
         self.workflow_runs: list[dict[str, Any]] = []  # GET .../workflows/<file>/runs
         self.artifacts: dict[int, list[dict[str, Any]]] = {}
         self.blobs: dict[str, bytes] = {}
+        self.repo_tree: list[str] = []  # filenames at the repo root, for framework detection
+        self.repo_files: dict[str, bytes] = {}  # path -> raw content, e.g. "package.json"
         self.dispatch_status = 204
         self.token_expires_at = "2099-01-01T00:00:00Z"
         self._next_artifact_id = 1
+
+    def set_repo_tree(self, *names: str) -> None:
+        self.repo_tree = list(names)
+
+    def set_repo_file(self, path: str, content: bytes) -> None:
+        self.repo_files[path] = content
 
     def add_artifact(self, run_id: int, name: str, archive: bytes, expired: bool = False) -> None:
         artifact_id = self._next_artifact_id
@@ -83,6 +92,15 @@ class FakeGitHub:
         if match := re.fullmatch(r"/repos/[^/]+/[^/]+/actions/artifacts/(\d+)/zip", path):
             location = f"https://blob.example/artifacts/{match.group(1)}.zip"
             return httpx.Response(302, headers={"Location": location})
+        if match := re.fullmatch(r"/repos/[^/]+/[^/]+/contents/(.+)", path):
+            if (content := self.repo_files.get(match.group(1))) is None:
+                return httpx.Response(404, json={"message": "Not Found"})
+            encoded = base64.b64encode(content).decode()
+            return httpx.Response(200, json={"content": encoded, "encoding": "base64"})
+        if re.fullmatch(r"/repos/[^/]+/[^/]+/contents/?", path):
+            if not self.repo_tree:
+                return httpx.Response(404, json={"message": "Not Found"})
+            return httpx.Response(200, json=[{"name": n, "type": "file"} for n in self.repo_tree])
         return httpx.Response(404, json={"message": "Not Found"})
 
 
