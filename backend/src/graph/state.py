@@ -15,3 +15,7 @@ class GraphState(TypedDict):
     retest_passed: bool
     document: str
     callback_url: str
+    # The GitHub App installation this run's webhook came from (None: JUnit ingest, no App
+    # configured, or the App isn't installed there) — clone_repo/code_fix/retest_flaky fall
+    # back to GITHUB_TOKEN when it's absent.
+    installation_id: int | None

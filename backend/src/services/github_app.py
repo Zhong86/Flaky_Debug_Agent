@@ -10,11 +10,12 @@ import asyncio
 import time
 from dataclasses import dataclass
 from datetime import datetime
+from functools import lru_cache
 
 import httpx
 import jwt
 
-from core.config import Settings
+from core.config import Settings, get_settings
 
 API_VERSION = "2022-11-28"
 # Refresh a cached installation token when it has less than this many seconds left.
@@ -23,7 +24,10 @@ _REFRESH_MARGIN_SECONDS = 300
 
 def load_private_key(settings: Settings) -> str | None:
     if settings.github_app_private_key is not None:
-        return settings.github_app_private_key.get_secret_value()
+        # Lets the .pem live as a single env var line (e.g. under Docker Compose,
+        # which doesn't interpret \n) — a real multi-line PEM has no such sequence
+        # to replace, so this is a no-op for GITHUB_APP_PRIVATE_KEY_PATH-loaded keys.
+        return settings.github_app_private_key.get_secret_value().replace("\\n", "\n")
     if settings.github_app_private_key_path is not None:
         return settings.github_app_private_key_path.read_text()
     return None
@@ -88,3 +92,19 @@ class GitHubApp:
             follow_redirects=True,
             transport=self._transport,
         )
+
+
+@lru_cache
+def get_github_app() -> "GitHubApp | None":
+    """The process-wide App instance, or None when the App isn't configured (PAT-only setup).
+
+    Cached like get_settings(): constructing it is cheap, but its installation-token
+    cache (GitHubApp._tokens) needs to live across calls to actually save requests.
+    """
+    settings = get_settings()
+    if settings.github_app_id is None:
+        return None
+    private_key = load_private_key(settings)
+    if private_key is None:
+        return None
+    return GitHubApp(settings.github_app_id, private_key, settings.github_api_base)

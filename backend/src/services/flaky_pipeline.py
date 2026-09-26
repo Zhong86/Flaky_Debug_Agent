@@ -62,6 +62,10 @@ def _analysis_key(thread_id: str) -> tuple:
     return ("analysis", thread_id)
 
 
+def _installation_id(event: WorkflowRunEvent) -> int | None:
+    return event.installation.id if event.installation else None
+
+
 # --- Phase A ------------------------------------------------------------------------
 
 
@@ -88,7 +92,7 @@ async def start_rerun(event: WorkflowRunEvent) -> None:
     run = event.workflow_run
     try:
         test_ids = await github_dispatch.trigger_rerun_workflow(
-            repo, run, event.repository.default_branch
+            repo, run, event.repository.default_branch, installation_id=_installation_id(event)
         )
     except Exception:
         claimed.discard(_rerun_key(event))  # let GitHub's redelivery try again
@@ -158,6 +162,7 @@ async def analyze_reports(
     github_payload: dict[str, Any],
     callback_url: str,
     reports: Reports,
+    installation_id: int | None = None,
 ) -> None:
     """Classify the JUnit reports and run the graph. Meant to run as a background task."""
     try:
@@ -183,6 +188,7 @@ async def analyze_reports(
             "retest_passed": False,
             "document": "",
             "callback_url": callback_url,
+            "installation_id": installation_id,
         }
         # thread_id groups every checkpoint for this CI run so the dashboard can
         # pull its full node-by-node history back out via /api/runs/{thread_id}
@@ -198,12 +204,19 @@ async def analyze_rerun(
     """Phase B background task: fetch the detect rerun's evidence, then run the graph."""
     repo = event.repository.full_name
     thread_id = str(original_id)
+    installation_id = _installation_id(event)
     try:
-        original = WorkflowRun.model_validate(await github_dispatch.get_run(repo, original_id))
-        reports = await github_artifacts.download_rerun_artifacts(repo, event.workflow_run.id)
+        original = WorkflowRun.model_validate(
+            await github_dispatch.get_run(repo, original_id, installation_id=installation_id)
+        )
+        reports = await github_artifacts.download_rerun_artifacts(
+            repo, event.workflow_run.id, installation_id=installation_id
+        )
         # The failing CI run's own report is attempt 0: without it, a test that failed
         # in CI but passed every rerun would read as "never failed", not flaky.
-        original_reports = await github_artifacts.download_run_artifacts(repo, original_id)
+        original_reports = await github_artifacts.download_run_artifacts(
+            repo, original_id, installation_id=installation_id
+        )
     except Exception:
         claimed.discard(_analysis_key(thread_id))
         logger.exception("Collecting rerun artifacts failed for %s run %s", repo, original_id)
@@ -218,4 +231,5 @@ async def analyze_rerun(
         github_payload=run_payload(repo, original, rerun=event.workflow_run),
         callback_url=original.html_url,
         reports=reports,
+        installation_id=installation_id,
     )

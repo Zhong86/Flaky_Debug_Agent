@@ -1,12 +1,22 @@
-"""services/github_app.py — GitHub App auth, kept for when it replaces the PAT."""
+"""services/github_app.py — GitHub App auth."""
 
 import time
 
 import jwt
 from cryptography.hazmat.primitives.serialization import load_pem_private_key
 
-from services.github_app import GitHubApp
+from core.config import Settings
+from services.github_app import GitHubApp, load_private_key
 from tests.helpers import INSTALLATION_TOKEN, FakeGitHub
+
+
+def test_load_private_key_unescapes_newlines_for_single_line_env_vars(
+    private_key_pem: str,
+) -> None:
+    """Docker Compose's env_file doesn't interpret `\\n`, so a PEM has to survive as one line."""
+    settings = Settings(github_app_private_key=private_key_pem.replace("\n", "\\n"))
+
+    assert load_private_key(settings) == private_key_pem
 
 
 def test_app_jwt_is_rs256_signed_with_github_claims(

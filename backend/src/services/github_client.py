@@ -1,12 +1,15 @@
 """The one place that builds authenticated GitHub API clients.
 
-Auth is the PAT in GITHUB_TOKEN for now; switching to GitHub App installation
-tokens (services/github_app.py) only needs to change this module.
+Prefers a GitHub App installation token when the App is configured (services/github_app.py)
+and the caller has an `installation_id` — every webhook carries one. Falls back to the PAT
+in GITHUB_TOKEN otherwise: no App configured, or a caller with no installation (the JUnit
+ingest endpoint, local dev).
 """
 
 import httpx
 
 from core.config import get_settings
+from services.github_app import get_github_app
 
 API_VERSION = "2022-11-28"
 
@@ -14,12 +17,18 @@ API_VERSION = "2022-11-28"
 transport: httpx.AsyncBaseTransport | None = None
 
 
-def github_client(timeout: float = 30.0) -> httpx.AsyncClient:
-    """Async client for the GitHub REST API. Use as `async with github_client() as client`."""
+async def _resolve_token(installation_id: int | None) -> str | None:
+    if installation_id is not None and (app := get_github_app()) is not None:
+        return await app.installation_token(installation_id)
+    return get_settings().github_token or None
+
+
+async def github_client(installation_id: int | None = None, timeout: float = 30.0) -> httpx.AsyncClient:
+    """Async client for the GitHub REST API. Use as `async with await github_client() as client`."""
     settings = get_settings()
     headers = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": API_VERSION}
-    if settings.github_token:
-        headers["Authorization"] = f"Bearer {settings.github_token}"
+    if token := await _resolve_token(installation_id):
+        headers["Authorization"] = f"Bearer {token}"
     # Artifact downloads redirect to blob storage; httpx drops the Authorization
     # header when a redirect leaves the API host, so following them is safe.
     return httpx.AsyncClient(

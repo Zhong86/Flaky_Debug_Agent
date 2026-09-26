@@ -10,8 +10,16 @@ import yaml
 from core.config import Settings
 from schemas.github import WorkflowRun
 from services import github_artifacts, github_dispatch
+from services.github_app import GitHubApp
 from services.github_client import github_client
-from tests.helpers import GITHUB_TOKEN, FakeGitHub, junit, make_zip, workflow_run
+from tests.helpers import (
+    GITHUB_TOKEN,
+    INSTALLATION_TOKEN,
+    FakeGitHub,
+    junit,
+    make_zip,
+    workflow_run,
+)
 
 REPO = "acme/shop"
 POLLED = "tests/test_inventory.py::test_concurrent_reserve"
@@ -54,7 +62,7 @@ def test_template_artifacts_are_what_the_backend_downloads() -> None:
 
 
 async def test_client_sends_the_pat(fake_github: FakeGitHub) -> None:
-    async with github_client() as client:
+    async with await github_client() as client:
         await client.get(f"/repos/{REPO}")
 
     [request] = fake_github.requests
@@ -67,10 +75,34 @@ async def test_client_without_a_token_sends_no_auth_header(
 ) -> None:
     settings.github_token = ""
 
-    async with github_client() as client:
+    async with await github_client() as client:
         await client.get(f"/repos/{REPO}")
 
     assert "Authorization" not in fake_github.requests[0].headers
+
+
+async def test_client_with_an_installation_id_prefers_the_app_token(
+    fake_github: FakeGitHub, github_app: GitHubApp, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("services.github_client.get_github_app", lambda: github_app)
+
+    async with await github_client(installation_id=99) as client:
+        await client.get(f"/repos/{REPO}")
+
+    [request] = fake_github.calls("GET", rf"/repos/{REPO}")
+    assert request.headers["Authorization"] == f"Bearer {INSTALLATION_TOKEN}"
+
+
+async def test_client_without_installation_id_ignores_a_configured_app(
+    fake_github: FakeGitHub, github_app: GitHubApp, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("services.github_client.get_github_app", lambda: github_app)
+
+    async with await github_client() as client:  # no installation_id: e.g. JUnit ingest
+        await client.get(f"/repos/{REPO}")
+
+    [request] = fake_github.requests
+    assert request.headers["Authorization"] == f"Bearer {GITHUB_TOKEN}"
 
 
 # --- github_artifacts ---------------------------------------------------------------

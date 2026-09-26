@@ -1,3 +1,4 @@
+import asyncio
 import subprocess
 import tempfile
 from datetime import datetime
@@ -5,7 +6,16 @@ from datetime import datetime
 from core.config import get_settings
 from graph.agents import documenter_agent, fixer_agent, investigator_agents
 from graph.state import GraphState
+from services.github_app import get_github_app
 from services.github_dispatch import rerun_and_wait
+
+
+async def _installation_bearer(state: GraphState) -> str | None:
+    """A fresh installation token if the App is installed there, else the GITHUB_TOKEN PAT."""
+    installation_id = state.get("installation_id")
+    if installation_id is not None and (app := get_github_app()) is not None:
+        return await app.installation_token(installation_id)
+    return get_settings().github_token or None
 
 
 def check_flaky(state: GraphState) -> dict:
@@ -15,23 +25,25 @@ def check_flaky(state: GraphState) -> dict:
     return {"is_flaky": is_flaky}
 
 
-def clone_repo(state: GraphState) -> dict:
+async def clone_repo(state: GraphState) -> dict:
     print("[clone_repo] Cloning repository for debug agent...")
     repository = state["github_payload"].get("repository")
     branch = state["github_payload"].get("branch")
 
     dest = tempfile.mkdtemp(prefix="flaky-debug-")
-    # Public HTTPS clone for now — private repos will need the GitHub App's
-    # installation token in the URL (x-access-token:<token>@github.com/...).
     repo_url = f"https://github.com/{repository}.git"
 
-    cmd = ["git", "clone", "--depth", "1"]
+    cmd = ["git"]
+    if token := await _installation_bearer(state):
+        # Header, not the URL, so a failed-clone error message can't leak the token.
+        cmd += ["-c", f"http.extraheader=AUTHORIZATION: bearer {token}"]
+    cmd += ["clone", "--depth", "1"]
     if branch:
         cmd += ["--branch", branch]
     cmd += [repo_url, dest]
 
     try:
-        subprocess.run(cmd, check=True, capture_output=True, text=True)
+        await asyncio.to_thread(subprocess.run, cmd, check=True, capture_output=True, text=True)
         print(f"[clone_repo] Cloned {repository} -> {dest}")
         return {"repo_path": dest}
     except subprocess.CalledProcessError as e:
@@ -50,15 +62,16 @@ _BOT_IDENTITY = {
 }
 
 
-def _git(repo_path: str, *args: str, config: dict[str, str] | None = None) -> str:
+async def _git(repo_path: str, *args: str, config: dict[str, str] | None = None) -> str:
     cmd = ["git", "-C", repo_path]
     for key, value in (config or {}).items():
         cmd += ["-c", f"{key}={value}"]
     cmd += list(args)
-    return subprocess.run(cmd, check=True, capture_output=True, text=True).stdout.strip()
+    result = await asyncio.to_thread(subprocess.run, cmd, check=True, capture_output=True, text=True)
+    return result.stdout.strip()
 
 
-def code_fix(state: GraphState) -> dict:
+async def code_fix(state: GraphState) -> dict:
     print("[code_fix] Delegating fix to IBM Bob CLI...")
 
     repo_path = state.get("repo_path")
@@ -71,25 +84,25 @@ def code_fix(state: GraphState) -> dict:
         print("[code_fix] Bob did not produce a fix")
         return {"fix_applied": False}
 
-    settings = get_settings()
-    if not settings.github_token:
-        print("[code_fix] No GITHUB_TOKEN — fix applied locally only, skipping push")
+    token = await _installation_bearer(state)
+    if not token:
+        print("[code_fix] No GitHub App installation or GITHUB_TOKEN — fix applied locally only, skipping push")
         return {"fix_applied": True}
 
     findings = state["debug_findings"]
     branch = f"flaky-fix/{datetime.now().strftime('%Y%m%d%H%M%S')}"
     try:
-        _git(repo_path, "checkout", "-b", branch)
-        _git(repo_path, "add", "-A")
-        _git(repo_path, "commit", "-m", f"flaky-fix: {findings[:72]}", config=_BOT_IDENTITY)
-        _git(
+        await _git(repo_path, "checkout", "-b", branch)
+        await _git(repo_path, "add", "-A")
+        await _git(repo_path, "commit", "-m", f"flaky-fix: {findings[:72]}", config=_BOT_IDENTITY)
+        await _git(
             repo_path,
             "push",
             "origin",
             branch,
-            config={"http.extraheader": f"AUTHORIZATION: bearer {settings.github_token}"},
+            config={"http.extraheader": f"AUTHORIZATION: bearer {token}"},
         )
-        sha = _git(repo_path, "rev-parse", "HEAD")
+        sha = await _git(repo_path, "rev-parse", "HEAD")
     except subprocess.CalledProcessError as e:
         print(f"[code_fix] Commit/push failed: {e.stderr}")
         return {"fix_applied": False}
@@ -101,8 +114,8 @@ def code_fix(state: GraphState) -> dict:
 async def retest_flaky(state: GraphState) -> dict:
     print("[retest_flaky] Retesting flaky test...")
 
-    if not get_settings().github_token:
-        print("[retest_flaky] No GITHUB_TOKEN configured — falling back to stub")
+    if not await _installation_bearer(state):
+        print("[retest_flaky] No GitHub App installation or GITHUB_TOKEN configured — falling back to stub")
         return {"retest_passed": True}
 
     payload = state["github_payload"]
@@ -113,7 +126,9 @@ async def retest_flaky(state: GraphState) -> dict:
     sha = state.get("fix_sha") or payload.get("sha") or ref
     test_ids = [r["test_id"] for r in state["rerun_results"]]
 
-    results = await rerun_and_wait(repo, ref=ref, sha=sha, test_ids=test_ids)
+    results = await rerun_and_wait(
+        repo, ref=ref, sha=sha, test_ids=test_ids, installation_id=state.get("installation_id")
+    )
     retest_passed = bool(results) and all(r["passed"] == r["attempts"] for r in results)
     print(f"[retest_flaky] retest_passed={retest_passed}")
     return {"retest_passed": retest_passed}

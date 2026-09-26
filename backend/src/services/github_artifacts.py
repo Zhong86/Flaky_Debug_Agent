@@ -65,7 +65,7 @@ def _xml_files(archive: bytes, budget: int) -> tuple[list[bytes], int]:
 
 
 async def download_run_artifacts(
-    repo: str, run_id: int, name_prefix: str = ""
+    repo: str, run_id: int, name_prefix: str = "", installation_id: int | None = None
 ) -> dict[int, list[bytes]]:
     """JUnit XML files attached to a run, grouped by attempt number.
 
@@ -76,7 +76,7 @@ async def download_run_artifacts(
     budget = get_settings().max_artifact_bytes
     reports: dict[int, list[bytes]] = {}
 
-    async with github_client() as client:
+    async with await github_client(installation_id) as client:
         for artifact in await _list_artifacts(client, repo, run_id):
             name = artifact["name"]
             if not name.startswith(name_prefix) or artifact.get("expired"):
@@ -96,6 +96,10 @@ async def download_run_artifacts(
     return reports
 
 
-async def download_rerun_artifacts(repo: str, run_id: int) -> dict[int, list[bytes]]:
+async def download_rerun_artifacts(
+    repo: str, run_id: int, installation_id: int | None = None
+) -> dict[int, list[bytes]]:
     """One flaky-rerun.yml run's worth of artifacts: `rerun-attempt-<n>` → attempt n."""
-    return await download_run_artifacts(repo, run_id, name_prefix=RERUN_ARTIFACT_PREFIX)
+    return await download_run_artifacts(
+        repo, run_id, name_prefix=RERUN_ARTIFACT_PREFIX, installation_id=installation_id
+    )
