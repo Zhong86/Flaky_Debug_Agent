@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites tests="3" failures="1" errors="0" time="0.520000">
+	<testsuite tests="3" failures="1" time="0.510000" name="example.com/shop/worker" timestamp="2026-09-26T10:00:00Z">
+		<properties>
+			<property name="go.version" value="go1.25.1 linux/amd64"></property>
+		</properties>
+		<testcase classname="example.com/shop/worker" name="TestPoolDrain" time="0.200000">
+			<failure message="Failed" type="">=== RUN   TestPoolDrain&#xA;    pool_test.go:21: got 4 finished jobs, want 5&#xA;--- FAIL: TestPoolDrain (0.20s)&#xA;</failure>
+		</testcase>
+		<testcase classname="example.com/shop/worker" name="TestPoolStart" time="0.010000"></testcase>
+		<testcase classname="example.com/shop/worker" name="TestPoolWindows" time="0.000000">
+			<skipped message="=== RUN   TestPoolWindows&#xA;    pool_test.go:40: windows only&#xA;--- SKIP: TestPoolWindows (0.00s)&#xA;"></skipped>
+		</testcase>
+	</testsuite>
+</testsuites>

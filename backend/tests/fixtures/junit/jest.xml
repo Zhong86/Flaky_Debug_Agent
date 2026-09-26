@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="jest tests" tests="2" failures="1" errors="0" time="1.512">
+  <testsuite name="cart" errors="0" failures="1" skipped="0" timestamp="2026-09-26T10:00:00" time="1.204" tests="2">
+    <testcase classname="cart adds items concurrently" name="cart adds items concurrently" time="0.811">
+      <failure>Error: expect(received).toBe(expected) // Object.is equality
+
+Expected: 3
+Received: 2
+    at Object.&lt;anonymous&gt; (src/cart.test.js:12:25)</failure>
+    </testcase>
+    <testcase classname="cart removes items" name="cart removes items" time="0.102">
+    </testcase>
+  </testsuite>
+</testsuites>

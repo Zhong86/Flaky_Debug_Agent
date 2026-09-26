@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://maven.apache.org/surefire/maven-surefire-plugin/xsd/surefire-test-report-3.0.xsd" version="3.0" name="com.example.CacheTest" time="1.2" tests="3" errors="0" skipped="0" failures="1" flakes="1">
+  <properties>
+    <property name="java.version" value="21.0.4"/>
+  </properties>
+  <testcase name="concurrentWrite" classname="com.example.CacheTest" time="0.4">
+    <flakyFailure message="expected: &lt;10&gt; but was: &lt;9&gt;" type="org.opentest4j.AssertionFailedError">
+      <stackTrace>org.opentest4j.AssertionFailedError: expected: &lt;10&gt; but was: &lt;9&gt;
+	at com.example.CacheTest.concurrentWrite(CacheTest.java:31)</stackTrace>
+    </flakyFailure>
+  </testcase>
+  <testcase name="readAfterWrite" classname="com.example.CacheTest" time="0.3">
+    <failure message="lock acquisition timed out" type="java.util.concurrent.TimeoutException">java.util.concurrent.TimeoutException: lock acquisition timed out
+	at com.example.CacheTest.readAfterWrite(CacheTest.java:44)</failure>
+    <rerunFailure message="lock acquisition timed out" type="java.util.concurrent.TimeoutException">
+      <stackTrace>java.util.concurrent.TimeoutException: lock acquisition timed out</stackTrace>
+    </rerunFailure>
+  </testcase>
+  <testcase name="evict" classname="com.example.CacheTest" time="0.1"/>
+</testsuite>

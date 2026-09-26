@@ -13,3 +13,6 @@ out/
 # Env
 .env
 .env.local
+
+# GitHub App private keys
+*.pem

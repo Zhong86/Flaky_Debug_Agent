@@ -1,37 +1,129 @@
-# backend/src/api/routes/webhooks.py
-from fastapi import APIRouter, Request
+"""Where the user's CI reaches us. See services/flaky_pipeline.py for the two phases."""
 
-from services.github_artifacts import download_rerun_artifacts, parse_junit_results
+from typing import Annotated
 
-router = APIRouter(tags=["webhooks"])
+import httpx
+from fastapi import APIRouter, BackgroundTasks, Header, HTTPException, status
+from fastapi.exceptions import RequestValidationError
+from pydantic import BaseModel, ValidationError
 
-@router.post("/webhooks/github")
-async def github_webhook(request: Request):
-    payload = await request.json()
+from api.deps import GitHubAppDep, GraphDep, SettingsDep, VerifiedBody
+from schemas.github import JUnitIngest, WebhookAck, WorkflowRunEvent
+from services import flaky_pipeline
 
-    if payload.get("action") != "completed":
-        return {"ignored": True}
+router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 
-    run = payload["workflow_run"]
 
-    if run["name"] == "Flaky Rerun":
-        # phase B: rerun finished, we now have real data to classify
-        xml_files = download_rerun_artifacts(payload["repository"]["full_name"], run["id"])
-        rerun_results = parse_junit_results(xml_files)
+def _parse[Model: BaseModel](model: type[Model], body: bytes) -> Model:
+    # Bodies are parsed by hand, after the signature check, instead of as a FastAPI
+    # body parameter — so unsigned requests never reach validation.
+    try:
+        return model.model_validate_json(body)
+    except ValidationError as exc:
+        raise RequestValidationError(exc.errors()) from exc
 
-        initial_state = {
-            "github_payload": payload,
-            "logs": "",
-            "rerun_results": rerun_results,   # ← new field, doesn't exist in GraphState yet
-            "callback_url": run["repository"]["full_name"],
+
+def _require[T](dependency: T | None, what: str) -> T:
+    if dependency is None:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, f"{what} is not configured")
+    return dependency
+
+
+def _ignored(reason: str, thread_id: str | None = None) -> WebhookAck:
+    return WebhookAck(action="ignored", reason=reason, thread_id=thread_id)
+
+
+@router.post("/github", status_code=status.HTTP_202_ACCEPTED)
+async def github_webhook(
+    body: VerifiedBody,
+    settings: SettingsDep,
+    graph: GraphDep,
+    github_app: GitHubAppDep,
+    background_tasks: BackgroundTasks,
+    x_github_event: Annotated[str | None, Header()] = None,
+) -> WebhookAck:
+    """GitHub App webhook. Only completed `workflow_run` events do anything."""
+    if x_github_event != "workflow_run":
+        return _ignored(f"event {x_github_event!r} is not handled")
+
+    event = _parse(WorkflowRunEvent, body)
+    if event.action != "completed":
+        return _ignored(f"workflow_run action {event.action!r} is not handled")
+    run = event.workflow_run
+
+    if run.name == settings.rerun_workflow_name:
+        # phase B: rerun finished, we now have real data to classify. Collecting the
+        # artifacts and running the graph takes minutes, far past GitHub's 10s webhook
+        # timeout, so it runs after the response.
+        original_id = flaky_pipeline.original_run_id(run)
+        if original_id is None:
+            return _ignored("rerun's run-name has no '#<original_run_id>'")
+        if event.installation is None:
+            return _ignored("payload has no GitHub App installation")
+        thread_id = str(original_id)
+        graph = _require(graph, "Graph checkpointer")
+        if await flaky_pipeline.thread_exists(graph, thread_id):
+            return _ignored("this run was already analyzed", thread_id)
+        background_tasks.add_task(
+            flaky_pipeline.analyze_rerun,
+            graph,
+            _require(github_app, "GitHub App"),
+            event,
+            original_id,
+            settings,
+        )
+        return WebhookAck(action="analysis_scheduled", thread_id=thread_id)
+
+    # phase A: original test workflow failed, just dispatch the rerun — don't invoke the
+    # graph yet. Done inline: it's one API call, and a failure here should mark the
+    # delivery as failed in GitHub so it can be redelivered.
+    if reason := flaky_pipeline.rerun_skip_reason(event, settings):
+        return _ignored(reason)
+    try:
+        dispatched = await flaky_pipeline.dispatch_rerun(
+            _require(github_app, "GitHub App"), event, settings
+        )
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(
+            status.HTTP_502_BAD_GATEWAY,
+            f"GitHub refused the rerun dispatch ({exc.response.status_code}): "
+            f"{exc.response.text[:300]}",
+        ) from exc
+    except httpx.HTTPError as exc:
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, f"GitHub unreachable: {exc}") from exc
+    if not dispatched:
+        return _ignored("rerun already dispatched for this run attempt", str(run.id))
+    return WebhookAck(action="rerun_dispatched", thread_id=str(run.id))
+
+
+@router.post(
+    "/junit",
+    status_code=status.HTTP_202_ACCEPTED,
+    openapi_extra={
+        "requestBody": {
+            "required": True,
+            "content": {"application/json": {"schema": JUnitIngest.model_json_schema()}},
         }
-        # thread_id groups every checkpoint for this CI run so the dashboard can
-        # pull its full node-by-node history back out via /api/runs/{thread_id}
-        config = {"configurable": {"thread_id": str(run["id"])}}
-        await request.app.state.graph.ainvoke(initial_state, config=config)
+    },
+)
+async def junit_ingest(
+    body: VerifiedBody, graph: GraphDep, background_tasks: BackgroundTasks
+) -> WebhookAck:
+    """Hand in JUnit XML reports directly, signed like a GitHub webhook.
 
-    elif run["conclusion"] == "failure":
-        # phase A: original test.yml failed, just dispatch the rerun — don't invoke the graph yet
-        await trigger_rerun_workflow(payload)
-
-    return {"received": True}
+    Skips the GitHub rerun round-trip: for local testing, and for CI systems other
+    than GitHub Actions. `reports` maps attempt number (0 = original run) to XML strings.
+    """
+    ingest = _parse(JUnitIngest, body)
+    graph = _require(graph, "Graph checkpointer")
+    if await flaky_pipeline.thread_exists(graph, ingest.run_id):
+        return _ignored("this run was already analyzed", ingest.run_id)
+    background_tasks.add_task(
+        flaky_pipeline.analyze_reports,
+        graph,
+        thread_id=ingest.run_id,
+        github_payload=flaky_pipeline.ingest_payload(ingest),
+        callback_url=ingest.run_url,
+        reports=ingest.reports,
+    )
+    return WebhookAck(action="analysis_scheduled", thread_id=ingest.run_id)
