@@ -22,8 +22,8 @@ read_source_code(file_path)
 write_fixed_code(file_path, new_code)
     Overwrite a file with corrected source code.
 
-create_markdown_docs(content)
-    Write a timestamped markdown bug-report to flaky_debug/reports/.
+create_markdown_docs(content, subfolder)
+    Write a timestamped markdown bug-report to flaky_debug/<subfolder>/.
 """
 
 from __future__ import annotations
@@ -220,13 +220,13 @@ def write_fixed_code(file_path: str, new_code: str) -> str:
     return f"Written {line_count} lines to {file_path}"
 
 
-def create_markdown_docs(content: str) -> str:
+def create_markdown_docs(content: str, subfolder: str = "reports") -> str:
     """Write *content* as a timestamped markdown bug-report.
 
-    The file is placed under ``flaky_debug/reports/`` relative to the
+    The file is placed under ``flaky_debug/<subfolder>/`` relative to the
     project root.  Returns the absolute path of the written file.
     """
-    report_dir = _REPORT_DIR / "reports"
+    report_dir = _REPORT_DIR / subfolder
     report_dir.mkdir(parents=True, exist_ok=True)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")

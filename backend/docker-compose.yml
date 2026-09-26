@@ -1,0 +1,15 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: flaky_debug
+    ports:
+      - "55432:5432"
+    volumes:
+      - flaky_debug_pgdata:/var/lib/postgresql/data
+
+volumes:
+  flaky_debug_pgdata:

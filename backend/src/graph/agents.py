@@ -11,21 +11,27 @@ no langchain imports anywhere in this file.
 Nodes
 -----
 investigator_agents(state)
-    EXPLORE step.  Builds one comprehensive prompt that instructs Bob to
-    act as all three specialist personas simultaneously (Alpha load-tester,
-    Beta delay-injector, Gamma order-shuffler).  Passes the CI logs, the
-    async git diff, and the changed file's source code to Bob and stores
-    the response in state["debug_findings"].
+    EXPLORE step, called from graph.nodes.debug_agent.  Builds one
+    comprehensive prompt that instructs Bob to act as all three specialist
+    personas simultaneously (Alpha load-tester, Beta delay-injector, Gamma
+    order-shuffler).  Passes the CI logs, the async git diff of the repo
+    clone_repo checked out, and the source of each flaky test file (derived
+    from state["rerun_results"]) to Bob and stores the response in
+    state["debug_findings"].
 
 fixer_agent(state)
-    FIX step.  Builds a fix prompt from the debug_findings (flaky path) or
-    raw CI logs (deterministic path) and tells Bob to apply the minimal
-    code change directly.  Sets state["fix_applied"] = True on success.
+    FIX step, called from graph.nodes.code_fix.  Builds a fix prompt from
+    the debug_findings (flaky path) or raw CI logs (deterministic path) and
+    tells Bob to apply the minimal code change directly inside
+    state["repo_path"].  Sets state["fix_applied"] = True on success; the
+    git branch/commit/push plumbing lives in graph.nodes.code_fix, not here.
 
 documenter_agent(state)
-    DOCUMENT step.  Asks Bob to write a structured markdown bug-report from
-    the full session state and persists it with create_markdown_docs.
-    Sets state["document"] to the written file path.
+    DOCUMENT step, called from graph.nodes.documents.  Asks Bob to write a
+    structured markdown bug-report from the full session state and persists
+    it with create_markdown_docs under flaky_debug/success or flaky_debug/fail
+    depending on state["retest_passed"].  Sets state["document"] to the
+    written file path.
 
 IBM Bob CLI
 -----------
@@ -34,6 +40,8 @@ subprocess inside the repository directory.  See tools.call_ibm_bob_cli.
 """
 
 from __future__ import annotations
+
+from pathlib import Path
 
 from graph.state import GraphState
 from graph.tools import (
@@ -58,21 +66,32 @@ def investigator_agents(state: GraphState) -> dict:
 
     Bob's response is stored verbatim as state["debug_findings"].
     """
-    github_payload: dict = state.get("github_payload", {})
     logs: str = state.get("logs", "")
-    repo_path: str = github_payload.get("repo_path", ".")
-    changed_file: str = github_payload.get("changed_file", "")
-    test_command: str = github_payload.get("test_command", "pytest")
+    repo_path: str = state.get("repo_path") or "."
+    rerun_results: list[dict] = state.get("rerun_results", [])
 
     # Gather read-only context to enrich the prompt.
     async_diff = filter_async_git_diff(repo_path)
-    source_code = read_source_code(changed_file) if changed_file else "(no file specified)"
+
+    test_summary = "\n".join(
+        f"  - {r['test_id']}: {r['passed']}/{r['attempts']} passed"
+        for r in rerun_results
+    ) or "(no rerun results provided)"
+
+    # pytest-style IDs look like "path/to/test_file.py::test_name" -- read each
+    # unique file referenced so Bob sees the actual flaky test source.
+    test_files = sorted({
+        r["test_id"].split("::")[0] for r in rerun_results if "::" in r["test_id"]
+    })
+    source_sections = "\n\n".join(
+        f"--- {f} ---\n{read_source_code(str(Path(repo_path) / f))}" for f in test_files
+    ) or "(no test files resolved from rerun results)"
 
     prompt = (
         "You are the Master Agent for a flaky-test debugging system.\n"
         "Please act simultaneously as all three specialist sub-agents:\n\n"
         "  - Alpha (Load/Stress Tester): Analyse the statistical failure rate "
-        "visible in the CI logs below and identify burst-failure patterns.\n"
+        "visible in the rerun results below and identify burst-failure patterns.\n"
         "  - Beta (Delay Injector / TOCTOU Analyst): Examine the async git diff "
         "for race conditions and Time-of-Check-to-Time-of-Use windows. Propose "
         "the exact code locations where a sleep() injection would reliably "
@@ -81,20 +100,20 @@ def investigator_agents(state: GraphState) -> dict:
         "shared fixtures, or database leaks that make tests order-dependent.\n\n"
         "Produce a structured report with one section per sub-agent role.\n\n"
         "== REPOSITORY ==\n"
-        f"Path        : {repo_path}\n"
-        f"Changed file: {changed_file or '(unknown)'}\n"
-        f"Test command: {test_command}\n\n"
+        f"Path: {repo_path}\n\n"
+        "== FLAKY TEST RERUN RESULTS ==\n"
+        f"{test_summary}\n\n"
         "== CI FAILURE LOGS ==\n"
         f"{logs or '(none provided)'}\n\n"
         "== ASYNC / CONCURRENCY GIT DIFF ==\n"
         f"{async_diff or '(no concurrency-related changes detected)'}\n\n"
-        "== SOURCE CODE ==\n"
-        f"{source_code}\n"
+        "== FLAKY TEST SOURCE ==\n"
+        f"{source_sections}\n"
     )
 
     print(
         f"[investigator_agents] Calling bobshell | "
-        f"repo={repo_path} | file={changed_file or 'N/A'}"
+        f"repo={repo_path} | tests={len(rerun_results)}"
     )
 
     debug_findings = call_ibm_bob_cli(prompt, repo_path=repo_path)
@@ -131,15 +150,16 @@ def fixer_agent(state: GraphState) -> dict:
 
     State updates
     -------------
-    ``fix_applied`` -- set to True when bobshell exits successfully.
+    ``fix_applied`` -- set to True when bobshell exits successfully.  The
+    caller (graph.nodes.code_fix) is responsible for committing and pushing
+    whatever Bob changed inside state["repo_path"].
     """
-    github_payload: dict = state.get("github_payload", {})
     logs: str = state.get("logs", "")
     is_flaky: bool = state.get("is_flaky", False)
     debug_findings: str = state.get("debug_findings", "")
-    repo_path: str = github_payload.get("repo_path", ".")
-    changed_file: str = github_payload.get("changed_file", "")
-    test_command: str = github_payload.get("test_command", "pytest")
+    repo_path: str = state.get("repo_path") or "."
+    rerun_results: list[dict] = state.get("rerun_results", [])
+    test_ids = ", ".join(r["test_id"] for r in rerun_results) or "(unknown)"
 
     if is_flaky:
         context_section = (
@@ -166,15 +186,13 @@ def fixer_agent(state: GraphState) -> dict:
         "You are the Master Agent for a flaky-test debugging system.\n"
         f"{instruction}\n\n"
         f"Repository  : {repo_path}\n"
-        f"Changed file: {changed_file or '(unknown)'}\n"
-        f"Test command: {test_command}\n\n"
+        f"Flaky tests : {test_ids}\n\n"
         f"{context_section}\n"
     )
 
     print(
         f"[fixer_agent] Calling bobshell | "
-        f"mode={'flaky' if is_flaky else 'deterministic'} | "
-        f"repo={repo_path} | file={changed_file or 'N/A'}"
+        f"mode={'flaky' if is_flaky else 'deterministic'} | repo={repo_path}"
     )
 
     response = call_ibm_bob_cli(prompt, repo_path=repo_path)
@@ -198,12 +216,13 @@ def documenter_agent(state: GraphState) -> dict:
 
     Builds a prompt from the full session state and calls bobshell.
     Bob's response is passed directly to create_markdown_docs which
-    persists it under flaky_debug/reports/.
+    persists it under flaky_debug/success/ or flaky_debug/fail/ depending
+    on state["retest_passed"].
 
     Sets state["document"] to the written file path.
     """
+    repo_path: str = state.get("repo_path") or "."
     github_payload: dict = state.get("github_payload", {})
-    repo_path: str = github_payload.get("repo_path", ".")
 
     prompt = (
         "You are a technical writer for a software engineering team.\n"
@@ -217,11 +236,11 @@ def documenter_agent(state: GraphState) -> dict:
         "  6. Retest Outcome\n"
         "  7. Recommendations\n\n"
         "== SESSION STATE ==\n"
-        f"Repository   : {github_payload.get('repo_path', 'unknown')}\n"
-        f"Changed file : {github_payload.get('changed_file', 'unknown')}\n"
-        f"Test command : {github_payload.get('test_command', 'unknown')}\n"
+        f"Repository   : {github_payload.get('repository', 'unknown')}\n"
+        f"Rerun results: {state.get('rerun_results', [])}\n"
         f"Is flaky     : {state.get('is_flaky')}\n"
         f"Fix applied  : {state.get('fix_applied')}\n"
+        f"Fix branch   : {state.get('fix_branch') or '(none)'}\n"
         f"Retest passed: {state.get('retest_passed')}\n\n"
         "== INVESTIGATION FINDINGS ==\n"
         f"{state.get('debug_findings', '(none)')}\n\n"
@@ -232,12 +251,13 @@ def documenter_agent(state: GraphState) -> dict:
     print(f"[documenter_agent] Calling bobshell for bug report | repo={repo_path}")
 
     response = call_ibm_bob_cli(prompt, repo_path=repo_path)
+    subfolder = "success" if state.get("retest_passed") else "fail"
 
     if response.startswith("[bobshell error]"):
         print(f"[documenter_agent] Bob CLI error: {response[:200]}")
         document_path = response
     else:
-        document_path = create_markdown_docs(response)
+        document_path = create_markdown_docs(response, subfolder=subfolder)
         print(f"[documenter_agent] Document written to: {document_path}")
 
     return {"document": document_path}

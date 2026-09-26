@@ -1,0 +1,69 @@
+# Added to a connected repo's .github/workflows/ during onboarding (via PR, never
+# a direct commit). Dispatched by our backend through the GitHub API — see
+# services/github_dispatch.py:rerun_and_wait. Not triggered by push/PR; only by
+# workflow_dispatch, so it never runs unless we explicitly ask for it.
+#
+# MVP scope: pytest only. A real multi-language setup swaps the "Install
+# dependencies" / "Rerun targeted tests" steps per repo (setup-node + jest,
+# setup-go + gotestsum, etc.) — see the framework input.
+name: Flaky Rerun
+
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: "Exact commit to check out and test"
+        required: true
+      test_ids:
+        description: 'JSON array of failing pytest node IDs, e.g. ["tests/test_x.py::test_y"]'
+        required: true
+      framework:
+        description: "Test framework (currently only pytest is wired up)"
+        required: true
+        default: "pytest"
+      attempts:
+        description: "How many isolated reruns to attempt"
+        required: false
+        default: "5"
+
+jobs:
+  rerun:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Each attempt gets its own fresh VM — deliberate, so environment-
+        # dependent flakes (timing, cold caches) aren't masked by shared state.
+        attempt: [1, 2, 3, 4, 5]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Rerun targeted tests
+        run: |
+          python - <<'PYEOF'
+          import json, subprocess, sys
+
+          test_ids = json.loads('''${{ inputs.test_ids }}''')
+          result = subprocess.run(
+              ["pytest", *test_ids, "--junitxml=rerun-${{ matrix.attempt }}.xml"]
+          )
+          sys.exit(result.returncode)
+          PYEOF
+        # A failing attempt is data we want, not a broken job — don't let it
+        # block the artifact upload below.
+        continue-on-error: true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: rerun-attempt-${{ matrix.attempt }}
+          path: rerun-${{ matrix.attempt }}.xml
