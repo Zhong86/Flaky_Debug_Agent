@@ -4,6 +4,8 @@ Usage (from backend/):
     python -m graph
 """
 
+import asyncio
+
 from graph.graph import graph
 
 initial_state = {
@@ -27,7 +29,7 @@ initial_state = {
 
 if __name__ == "__main__":
     print("=== Flaky Debug Agent — Graph Run ===\n")
-    result = graph.invoke(initial_state)
+    result = asyncio.run(graph.ainvoke(initial_state))
     print("\n=== Final State ===")
     for key, value in result.items():
         print(f"  {key}: {value}")

@@ -4,7 +4,9 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 
+from core.config import get_settings
 from graph.state import GraphState
+from services.github_dispatch import rerun_and_wait
 
 # Project root is 3 levels up from this file:
 # graph/ -> src/ -> backend/ -> <project root>
@@ -61,10 +63,23 @@ def code_fix(state: GraphState) -> dict:
     return {"fix_applied": fix_applied}
 
 
-def retest_flaky(state: GraphState) -> dict:
-    print("[retest_flaky] Retesting flaky test (stub)...")
-    # Hardcoded for development — real pytest rerun goes here
-    retest_passed = True
+async def retest_flaky(state: GraphState) -> dict:
+    print("[retest_flaky] Retesting flaky test...")
+
+    if not get_settings().github_token:
+        print("[retest_flaky] No GITHUB_TOKEN configured — falling back to stub")
+        return {"retest_passed": True}
+
+    payload = state["github_payload"]
+    repo = payload.get("repository")
+    # TODO: once code_fix pushes a real fix commit, thread that branch/sha through
+    # state instead of retargeting the original branch — this reruns in place for now.
+    ref = payload.get("branch") or "main"
+    sha = payload.get("sha") or ref
+    test_ids = [r["test_id"] for r in state["rerun_results"]]
+
+    results = await rerun_and_wait(repo, ref=ref, sha=sha, test_ids=test_ids)
+    retest_passed = bool(results) and all(r["passed"] == r["attempts"] for r in results)
     print(f"[retest_flaky] retest_passed={retest_passed}")
     return {"retest_passed": retest_passed}
 

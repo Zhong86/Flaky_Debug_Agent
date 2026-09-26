@@ -2,6 +2,7 @@
 from fastapi import APIRouter, Request
 
 from services.github_artifacts import download_rerun_artifacts, parse_junit_results
+from services.github_dispatch import trigger_rerun_workflow
 
 router = APIRouter(tags=["webhooks"])
 
