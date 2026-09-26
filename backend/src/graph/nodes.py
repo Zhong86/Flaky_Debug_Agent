@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import subprocess
 import tempfile
 from datetime import datetime
@@ -18,6 +19,18 @@ async def _installation_bearer(state: GraphState) -> str | None:
     return get_settings().github_token or None
 
 
+def _git_auth(token: str) -> dict[str, str]:
+    """git config that authenticates HTTPS git operations against GitHub with *token*.
+
+    GitHub's git endpoint takes Basic auth with username `x-access-token` (installation
+    tokens and PATs alike); a bearer header is rejected with 401, which git reports as
+    "could not read Username". A header rather than the URL keeps the token out of
+    .git/config and git's error messages.
+    """
+    basic = base64.b64encode(f"x-access-token:{token}".encode()).decode()
+    return {"http.extraheader": f"AUTHORIZATION: basic {basic}"}
+
+
 def check_flaky(state: GraphState) -> dict:
     results = state["rerun_results"]
     # flaky = failed at least once AND passed at least once across identical reruns
@@ -35,8 +48,8 @@ async def clone_repo(state: GraphState) -> dict:
 
     cmd = ["git"]
     if token := await _installation_bearer(state):
-        # Header, not the URL, so a failed-clone error message can't leak the token.
-        cmd += ["-c", f"http.extraheader=AUTHORIZATION: bearer {token}"]
+        for key, value in _git_auth(token).items():
+            cmd += ["-c", f"{key}={value}"]
     cmd += ["clone", "--depth", "1"]
     if branch:
         cmd += ["--branch", branch]
@@ -48,7 +61,9 @@ async def clone_repo(state: GraphState) -> dict:
         return {"repo_path": dest}
     except subprocess.CalledProcessError as e:
         print(f"[clone_repo] Clone failed: {e.stderr}")
-        return {"repo_path": ""}
+        # The graph routes an empty repo_path straight to `output`, so this is what the
+        # dashboard shows instead of findings about some other codebase.
+        return {"repo_path": "", "debug_findings": f"[clone_repo error] {e.stderr.strip()[-500:]}"}
 
 
 def debug_agent(state: GraphState) -> dict:
@@ -100,7 +115,7 @@ async def code_fix(state: GraphState) -> dict:
             "push",
             "origin",
             branch,
-            config={"http.extraheader": f"AUTHORIZATION: bearer {token}"},
+            config=_git_auth(token),
         )
         sha = await _git(repo_path, "rev-parse", "HEAD")
     except subprocess.CalledProcessError as e:
