@@ -28,21 +28,44 @@ def _require_demo_repo(settings: Settings) -> str:
     return settings.demo_repo
 
 
+async def _demo_auth(settings: Settings) -> tuple[str, int | None]:
+    """The demo repo plus the installation to act as, or None to fall back to GITHUB_TOKEN.
+
+    Nothing hands this path an installation_id the way a webhook delivery does, so when the
+    App is configured we resolve it from the repo — otherwise github_client silently drops to
+    the PAT, which usually lacks the `workflow` scope and 403s on dispatch.
+    """
+    repo = _require_demo_repo(settings)
+    app = get_github_app()
+    if app is None:
+        return repo, None
+    installation_id = await app.installation_id_for_repo(repo)
+    if installation_id is None:
+        raise HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            f"The GitHub App is not installed on {repo} — install it there, or unset "
+            "GITHUB_APP_ID to use GITHUB_TOKEN (needs the `workflow` scope).",
+        )
+    return repo, installation_id
+
+
 @router.post("/dispatch")
 async def dispatch_demo_run(settings: SettingsDep) -> dict:
     """Dispatch and locate the run. Takes a few seconds: dispatch itself returns no run ID."""
-    repo = _require_demo_repo(settings)
+    repo, installation_id = await _demo_auth(settings)
     logger.info("Dispatching %s on %s@%s", settings.demo_workflow_file, repo, settings.demo_ref)
     try:
         dispatched_at = await github_dispatch.dispatch_workflow(
-            repo, settings.demo_workflow_file, settings.demo_ref, inputs={}
+            repo, settings.demo_workflow_file, settings.demo_ref, inputs={}, installation_id=installation_id
         )
-        run_id = await github_dispatch.find_dispatched_run(repo, settings.demo_workflow_file, dispatched_at)
+        run_id = await github_dispatch.find_dispatched_run(
+            repo, settings.demo_workflow_file, dispatched_at, installation_id=installation_id
+        )
     except TimeoutError as exc:
         logger.error("Dispatch of %s on %s never appeared: %s", settings.demo_workflow_file, repo, exc)
         raise HTTPException(status.HTTP_504_GATEWAY_TIMEOUT, str(exc)) from exc
 
-    run = await github_dispatch.get_run(repo, run_id)
+    run = await github_dispatch.get_run(repo, run_id, installation_id)
     logger.info("Run %s dispatched: %s", run_id, run["html_url"])
     return {"run_id": run_id, "html_url": run["html_url"], "status": run["status"]}
 

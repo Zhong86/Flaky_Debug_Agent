@@ -102,6 +102,29 @@ export function stateKeyLabel(key: string): string {
   return STATE_KEY_LABELS[key] ?? key;
 }
 
+/** Whether a node has actually executed yet, per the step timeline. */
+export function hasNodeRun(steps: RunStep[], node: string): boolean {
+  return steps.some((step) => step.node === node);
+}
+
+/**
+ * Keys GraphState initialises to a zero-value placeholder ("", false) rather than
+ * leaving unset, so the TypedDict is fully populated on the very first invoke. The
+ * initial "Run created" checkpoint has no previous step to diff against, so it dumps
+ * the whole state — these render as if a node had already run and failed unless
+ * called out as not started yet.
+ */
+export const PENDING_OUTCOME_KEYS = new Set([
+  "is_flaky",
+  "repo_path",
+  "debug_findings",
+  "fix_applied",
+  "fix_branch",
+  "fix_sha",
+  "retest_passed",
+  "document",
+]);
+
 /** Colour for a demo run/job/step's status badge, GitHub Actions-style. */
 export function runStatusTone(
   status: string,

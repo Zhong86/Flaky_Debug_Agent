@@ -6,7 +6,9 @@ import { useState } from "react";
 import { ApiError, getRunTimeline } from "@/lib/api";
 import {
   NODE_META,
+  PENDING_OUTCOME_KEYS,
   formatTimestamp,
+  hasNodeRun,
   nodeLabel,
   repoName,
   stateKeyLabel,
@@ -34,18 +36,22 @@ function RunSummaryPanel({
   threadId,
   values,
   pending,
+  cloneRan,
+  retestRan,
 }: {
   threadId: string;
   values: GraphValues;
   pending: string[];
+  cloneRan: boolean;
+  retestRan: boolean;
 }) {
   const reruns = values.rerun_results ?? [];
 
   return (
     <div className="space-y-4">
-      {/* clone_repo writes "" when the checkout fails, and the graph then skips straight
-          to output — call that out rather than burying it. */}
-      {values.repo_path === "" ? (
+      {/* repo_path starts at "" like every other placeholder field, so only call this
+          out once clone_repo has actually run and produced that empty value itself. */}
+      {values.repo_path === "" && cloneRan ? (
         <div className="rounded-xl border border-orange-300 bg-orange-50 p-3 text-sm text-orange-900 dark:border-orange-500/30 dark:bg-orange-500/10 dark:text-orange-200">
           <span className="font-medium">Repository clone failed.</span> The debug agent and code fix were skipped;
           the clone step in the timeline shows git&apos;s error.
@@ -93,7 +99,12 @@ function RunSummaryPanel({
         <Card className="p-4">
           <SectionLabel>Retest</SectionLabel>
           <div className="mt-2">
-            <Verdict value={values.retest_passed} trueLabel="Passed" falseLabel="Failed" pendingLabel="Not run" />
+            <Verdict
+              value={retestRan ? values.retest_passed : undefined}
+              trueLabel="Passed"
+              falseLabel="Failed"
+              pendingLabel="Not run"
+            />
           </div>
         </Card>
       </div>
@@ -116,6 +127,10 @@ function TimelineEntry({ step, previous }: { step: RunStep; previous: RunStep | 
   const meta = step.node ? NODE_META[step.node] : undefined;
   // step -1 is the empty checkpoint LangGraph writes before any node runs.
   const isBookkeeping = step.node === null;
+  // The caller's full initial_state — including every placeholder field GraphState
+  // pre-fills so its TypedDict is complete — lands as this step's diff, since step -1
+  // is empty and this is the first snapshot with anything in it.
+  const isInput = isBookkeeping || step.node === "__start__";
 
   return (
     <li className="relative pl-8">
@@ -156,7 +171,11 @@ function TimelineEntry({ step, previous }: { step: RunStep; previous: RunStep | 
                   {stateKeyLabel(key)}
                 </dt>
                 <dd className="mt-1">
-                  <StateValue name={key} value={value} />
+                  {isInput && PENDING_OUTCOME_KEYS.has(key) ? (
+                    <Pill tone="zinc">Not started</Pill>
+                  ) : (
+                    <StateValue name={key} value={value} />
+                  )}
                 </dd>
               </div>
             ))}
@@ -211,6 +230,8 @@ export function RunDetail({ threadId }: { threadId: string }) {
   // A non-empty `next` on the final snapshot means the graph hasn't finished.
   const pending = last?.next ?? [];
   const repo = repoName(finalValues.github_payload?.repository as never);
+  const cloneRan = hasNodeRun(steps, "clone_repo");
+  const retestRan = hasNodeRun(steps, "retest_flaky");
 
   return (
     <div className="space-y-6">
@@ -240,7 +261,13 @@ export function RunDetail({ threadId }: { threadId: string }) {
         </p>
       ) : null}
 
-      <RunSummaryPanel threadId={threadId} values={finalValues} pending={pending} />
+      <RunSummaryPanel
+        threadId={threadId}
+        values={finalValues}
+        pending={pending}
+        cloneRan={cloneRan}
+        retestRan={retestRan}
+      />
 
       <div>
         <SectionLabel>Node timeline</SectionLabel>
