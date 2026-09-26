@@ -219,7 +219,7 @@ def test_completed_detect_rerun_runs_the_graph(
     payload = state["github_payload"]
     assert payload["repository"] == "acme/shop"  # the string clone_repo needs
     assert payload["branch"] == "feature/inventory"
-    assert payload["sha"] == "abc123def"  # what retest_flaky falls back to
+    assert payload["sha"] == "abc123def"
     assert payload["run_id"] == "111"
     assert payload["rerun_run_id"] == "222"
     assert payload["pull_requests"] == [7]
@@ -231,7 +231,6 @@ def test_completed_detect_rerun_runs_the_graph(
     assert (flaky["attempts"], flaky["passed"], flaky["failed"]) == (4, 2, 2)
     assert f"FAILED {FLAKY_TEST}" in state["logs"]
     assert state["callback_url"] == "https://github.com/acme/shop/actions/runs/111"
-    assert (state["fix_branch"], state["fix_sha"]) == ("", "")
     assert check_flaky(state) == {"is_flaky": True}
 
 
@@ -263,13 +262,15 @@ def test_ci_failure_that_passes_every_rerun_is_still_flaky(
     assert check_flaky(state) == {"is_flaky": True}  # 5/6 passed, thanks to attempt 0
 
 
-def test_retest_runs_are_ignored_so_the_graph_cannot_loop(
+def test_non_detect_reruns_are_ignored(
     client: TestClient, fake_github: FakeGitHub, fake_graph: FakeGraph
 ) -> None:
+    # flaky-rerun.yml still accepts purpose=retest (e.g. dispatched by hand); only
+    # detect reruns may start an analysis.
     ack = post_run_event(client, **rerun_completed(title=rerun_title("retest", "", "f1x")))
 
     assert ack["action"] == "ignored"
-    assert "retest_flaky" in ack["reason"]
+    assert ack["reason"] == "only detect reruns are analyzed"
     assert fake_graph.invocations == []
     assert fake_github.requests == []
 

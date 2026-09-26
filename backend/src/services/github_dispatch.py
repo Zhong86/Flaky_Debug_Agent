@@ -1,13 +1,10 @@
-"""Dispatching flaky-rerun.yml on a target repo and waiting for the result.
+"""Dispatching flaky-rerun.yml ("detect") on a target repo's failing tests.
 
-workflow_dispatch responds with 204 and no run ID, so finding the run we just
-created means listing recent runs and matching them — see find_dispatched_run
-below. flaky-rerun.yml's `run-name` (rerun_title) makes that match exact, and
-also tells the webhook which reruns it should analyse ("detect") and which ones
-retest_flaky is already waiting on itself ("retest").
+flaky-rerun.yml's `run-name` (rerun_title) carries the purpose and the original
+run id, which is how the webhook recognises a finished detect rerun and knows
+which CI run it belongs to.
 """
 
-import asyncio
 import base64
 import json
 import re
@@ -16,12 +13,7 @@ from typing import Literal, NamedTuple
 
 from core.config import get_settings
 from schemas.github import WorkflowRun
-from services.github_artifacts import (
-    download_rerun_artifacts,
-    download_run_artifacts,
-    parse_failed_test_ids,
-    parse_junit_results,
-)
+from services.github_artifacts import download_run_artifacts, parse_failed_test_ids
 from services.github_client import github_client
 
 # Unambiguous root-level marker files → the framework input flaky-rerun.yml expects
@@ -40,6 +32,8 @@ _FRAMEWORK_MARKERS: tuple[tuple[str, str], ...] = (
 RERUN_WORKFLOW_FILE = "flaky-rerun.yml"
 RERUN_WORKFLOW_NAME = "Flaky Rerun"
 
+# flaky-rerun.yml still accepts "retest" (kept so existing copies of the template stay
+# compatible), but the backend only dispatches "detect" and ignores every other purpose.
 Purpose = Literal["detect", "retest"]
 
 # Must mirror `run-name` in backend/templates/flaky-rerun.yml.
@@ -81,7 +75,7 @@ def is_rerun_run(run: WorkflowRun) -> bool:
 async def dispatch_workflow(
     repo: str, workflow_file: str, ref: str, inputs: dict, installation_id: int | None = None
 ) -> str:
-    """Kick off a workflow_dispatch run. Returns the ISO timestamp used to find it afterward."""
+    """Kick off a workflow_dispatch run. Returns the ISO timestamp it was requested at."""
     dispatched_at = datetime.now(UTC).isoformat()
     async with await github_client(installation_id) as client:
         resp = await client.post(
@@ -92,100 +86,11 @@ async def dispatch_workflow(
     return dispatched_at
 
 
-async def find_dispatched_run(
-    repo: str,
-    workflow_file: str,
-    dispatched_after: str,
-    display_title: str | None = None,
-    retries: int = 5,
-    delay: float = 2.0,
-    installation_id: int | None = None,
-) -> int:
-    """Poll the runs list for the run we just dispatched (no run ID comes back from dispatch itself).
-
-    With *display_title*, only a run carrying exactly that run-name matches — so a
-    concurrent dispatch of the same workflow can't be mistaken for ours.
-    """
-    async with await github_client(installation_id) as client:
-        for _ in range(retries):
-            resp = await client.get(
-                f"/repos/{repo}/actions/workflows/{workflow_file}/runs",
-                params={"event": "workflow_dispatch"},
-            )
-            resp.raise_for_status()
-            for run in resp.json()["workflow_runs"]:
-                if run["created_at"] > dispatched_after and (
-                    display_title is None or run.get("display_title") == display_title
-                ):
-                    return run["id"]
-            await asyncio.sleep(delay)
-    raise TimeoutError(f"Dispatched run for {workflow_file} on {repo} never appeared")
-
-
 async def get_run(repo: str, run_id: int, installation_id: int | None = None) -> dict:
     async with await github_client(installation_id) as client:
         resp = await client.get(f"/repos/{repo}/actions/runs/{run_id}")
         resp.raise_for_status()
         return resp.json()
-
-
-async def wait_for_run_completion(
-    repo: str,
-    run_id: int,
-    timeout: int = 300,
-    interval: int = 10,
-    installation_id: int | None = None,
-) -> str:
-    """Block (via polling) until the run finishes. Returns its conclusion (success/failure/...)."""
-    elapsed = 0
-    while elapsed < timeout:
-        run = await get_run(repo, run_id, installation_id)
-        if run["status"] == "completed":
-            return run["conclusion"]
-        await asyncio.sleep(interval)
-        elapsed += interval
-    raise TimeoutError(f"Run {run_id} on {repo} did not complete within {timeout}s")
-
-
-async def rerun_and_wait(
-    repo: str,
-    ref: str,
-    sha: str,
-    test_ids: list[str],
-    framework: str = "pytest",
-    attempts: int | None = None,
-    original_run_id: str = "",
-    installation_id: int | None = None,
-) -> list[dict]:
-    """Dispatch flaky-rerun.yml as a retest, wait for it, and return the parsed per-test results.
-
-    The run is tagged `retest`, so the webhook leaves it alone instead of starting
-    a new analysis from it.
-    """
-    purpose: Purpose = "retest"
-    dispatched_at = await dispatch_workflow(
-        repo,
-        RERUN_WORKFLOW_FILE,
-        ref=ref,
-        inputs={
-            "sha": sha,
-            "test_ids": json.dumps(test_ids),
-            "framework": framework,
-            "attempts": str(attempts or get_settings().rerun_attempts),
-            "original_run_id": original_run_id,
-            "purpose": purpose,
-        },
-        installation_id=installation_id,
-    )
-    run_id = await find_dispatched_run(
-        repo,
-        RERUN_WORKFLOW_FILE,
-        dispatched_at,
-        display_title=rerun_title(purpose, original_run_id, sha),
-        installation_id=installation_id,
-    )
-    await wait_for_run_completion(repo, run_id, installation_id=installation_id)
-    return parse_junit_results(await download_rerun_artifacts(repo, run_id, installation_id=installation_id))
 
 
 async def detect_framework(repo: str, ref: str, installation_id: int | None = None) -> str:

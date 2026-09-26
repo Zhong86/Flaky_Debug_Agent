@@ -110,10 +110,10 @@ def test_always_failing_test_is_not_flaky() -> None:
     assert check_flaky({"rerun_results": results}) == {"is_flaky": False}
 
 
-def test_fully_green_retest_still_returns_results() -> None:
+def test_fully_green_rerun_still_returns_results() -> None:
     results = parse_junit_results({1: [junit("pytest_passing.xml")]})
 
-    # retest_flaky: bool(results) and all(passed == attempts)
+    # Tests that passed every attempt are still tallied, not dropped.
     assert results and all(r["passed"] == r["attempts"] for r in results)
 
 

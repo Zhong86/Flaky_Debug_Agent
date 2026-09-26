@@ -131,8 +131,8 @@ def _tally(reports: Reports) -> dict[str, _Tally]:
 def parse_junit_results(reports: Reports) -> list[RerunResult]:
     """Aggregate JUnit reports, grouped by attempt number, into per-test tallies.
 
-    Every executed test is included — a fully green retest must still produce
-    results for `retest_flaky` to call it passed. Skipped testcases don't count.
+    Every executed test is included, including ones that passed every attempt, so
+    a test's pass/fail counts are complete. Skipped testcases don't count.
     """
     results = [
         RerunResult(

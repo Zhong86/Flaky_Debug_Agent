@@ -15,8 +15,6 @@ def _run_summary(thread_id: str, channel_values: dict) -> dict:
         "thread_id": thread_id,
         "repository": channel_values.get("github_payload", {}).get("repository"),
         "is_flaky": channel_values.get("is_flaky"),
-        "fix_applied": channel_values.get("fix_applied"),
-        "retest_passed": channel_values.get("retest_passed"),
         "document": channel_values.get("document"),
     }
 

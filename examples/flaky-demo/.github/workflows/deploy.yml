@@ -3,7 +3,7 @@
 # When the tests fail, GitHub sends a workflow_run webhook to the agent. Its name
 # ("Deploy") must be in the agent's WATCHED_WORKFLOWS. The agent reads the failing
 # tests from the JUnit artifact below, reruns them through flaky-rerun.yml, and if
-# they turn out to be flaky, has IBM Bob investigate and push a fix branch.
+# they turn out to be flaky, has IBM Bob investigate and write a report.
 name: Deploy
 
 on:

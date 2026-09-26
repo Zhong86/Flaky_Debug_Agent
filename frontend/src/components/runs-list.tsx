@@ -12,12 +12,16 @@ import { Card, EmptyState, ErrorBanner, Pill, SectionLabel, Verdict } from "./ui
 
 const POLL_MS = 5000;
 
-/** One-line outcome for a run, collapsing the three verdict flags into a headline. */
+/** documenter_agent stores an "[… error] …" message instead of a path when Bob fails. */
+function hasReport(run: RunSummary): boolean {
+  return Boolean(run.document) && !run.document?.startsWith("[");
+}
+
+/** One-line outcome for a run: the flaky verdict, and whether its report is written. */
 function outcome(run: RunSummary) {
-  if (run.retest_passed === true) return { tone: "green" as const, label: "Resolved" };
-  if (run.retest_passed === false) return { tone: "red" as const, label: "Retest failed" };
   if (run.is_flaky === false) return { tone: "red" as const, label: "Real failure" };
-  if (run.is_flaky === true) return { tone: "orange" as const, label: "Flaky · in progress" };
+  if (run.is_flaky === true && hasReport(run)) return { tone: "orange" as const, label: "Flaky · reported" };
+  if (run.is_flaky === true) return { tone: "orange" as const, label: "Flaky · investigating" };
   return { tone: "zinc" as const, label: "Running" };
 }
 
@@ -75,8 +79,8 @@ export function RunsList() {
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Stat label="Runs" value={runs.length} />
         <Stat label="Flaky" value={runs.filter((r) => r.is_flaky === true).length} />
-        <Stat label="Fixes applied" value={runs.filter((r) => r.fix_applied === true).length} />
-        <Stat label="Retests passed" value={runs.filter((r) => r.retest_passed === true).length} />
+        <Stat label="Real failures" value={runs.filter((r) => r.is_flaky === false).length} />
+        <Stat label="Reports" value={runs.filter(hasReport).length} />
       </div>
 
       {runs.length === 0 ? (
@@ -121,19 +125,7 @@ export function RunsList() {
                       trueTone="orange"
                       pendingLabel="Not classified"
                     />
-                    <Verdict
-                      value={run.fix_applied}
-                      trueLabel="Fix applied"
-                      falseLabel="No fix"
-                      pendingLabel="No fix yet"
-                    />
-                    <Verdict
-                      value={run.retest_passed}
-                      trueLabel="Retest passed"
-                      falseLabel="Retest failed"
-                      pendingLabel="Not retested"
-                    />
-                    {run.document ? <Pill tone="green">Report written</Pill> : null}
+                    {hasReport(run) ? <Pill tone="green">Report written</Pill> : null}
                   </div>
                 </Link>
               </li>

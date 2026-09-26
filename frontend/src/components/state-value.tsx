@@ -45,8 +45,6 @@ export function RerunResultsTable({ results }: { results: RerunResult[] }) {
 /** Tri-state booleans get key-specific wording so the timeline reads in plain English. */
 const BOOLEAN_LABELS: Record<string, { trueLabel: string; falseLabel: string; trueTone?: "green" | "orange" }> = {
   is_flaky: { trueLabel: "Flaky", falseLabel: "Real failure", trueTone: "orange" },
-  fix_applied: { trueLabel: "Fix applied", falseLabel: "No fix applied" },
-  retest_passed: { trueLabel: "Retest passed", falseLabel: "Retest failed" },
 };
 
 function isRerunResults(name: string, value: unknown): value is RerunResult[] {
