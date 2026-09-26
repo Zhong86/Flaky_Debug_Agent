@@ -16,7 +16,7 @@ from api.deps import GraphDep, SettingsDep, VerifiedBody
 from core.config import Settings
 from schemas.github import JUnitIngest, WebhookAck, WorkflowRunEvent
 from services import flaky_pipeline
-from services.github_dispatch import RERUN_WORKFLOW_NAME, parse_rerun_title
+from services.github_dispatch import is_rerun_run, parse_rerun_title
 
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 
@@ -61,7 +61,7 @@ async def github_webhook(
         return _ignored(f"workflow_run action {event.action!r} is not handled")
     run = event.workflow_run
 
-    if run.name == RERUN_WORKFLOW_NAME:
+    if is_rerun_run(run):
         # phase B: rerun finished, we now have real data to classify
         title = parse_rerun_title(run.display_title)
         if title is None:

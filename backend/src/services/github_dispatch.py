@@ -68,6 +68,16 @@ def parse_rerun_title(title: str) -> RerunTitle | None:
     return RerunTitle(match["purpose"], int(original) if original else None, match["sha"])
 
 
+def is_rerun_run(run: WorkflowRun) -> bool:
+    """Whether *run* is a flaky-rerun.yml run.
+
+    Matched on the workflow file, not `name`: GitHub reports the workflow's own name
+    ("Flaky Rerun") only on `requested` — from `in_progress` on, `name` is the evaluated
+    run-name ("Flaky Rerun (detect) #… @ …"). `path` may carry an "@<ref>" suffix.
+    """
+    return run.path.partition("@")[0] == f".github/workflows/{RERUN_WORKFLOW_FILE}"
+
+
 async def dispatch_workflow(
     repo: str, workflow_file: str, ref: str, inputs: dict, installation_id: int | None = None
 ) -> str:

@@ -184,6 +184,23 @@ def test_titles_outside_the_contract_are_rejected(title: str) -> None:
     assert github_dispatch.parse_rerun_title(title) is None
 
 
+@pytest.mark.parametrize(
+    ("name", "path", "expected"),
+    [
+        # `requested` still carries the workflow's name; later events carry the run-name
+        ("Flaky Rerun", ".github/workflows/flaky-rerun.yml", True),
+        ("Flaky Rerun (detect) #1 @ abc", ".github/workflows/flaky-rerun.yml", True),
+        ("Flaky Rerun (detect) #1 @ abc", ".github/workflows/flaky-rerun.yml@main", True),
+        ("Flaky Rerun", ".github/workflows/ci.yml", False),
+        ("Deploy", ".github/workflows/deploy.yml", False),
+    ],
+)
+def test_rerun_runs_are_recognised_by_workflow_file(name: str, path: str, expected: bool) -> None:
+    run = WorkflowRun.model_validate(workflow_run(name=name, path=path))
+
+    assert github_dispatch.is_rerun_run(run) is expected
+
+
 # --- github_dispatch ----------------------------------------------------------------
 
 

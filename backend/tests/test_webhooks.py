@@ -193,9 +193,11 @@ def seed_detect_rerun(fake_github: FakeGitHub) -> None:
 
 
 def rerun_completed(title: str = rerun_title("detect", "111", "abc123def"), **fields) -> dict:
+    # As GitHub sends it: by `completed`, `name` is the evaluated run-name, not "Flaky Rerun".
     return {
         "run_id": 222,
-        "name": "Flaky Rerun",
+        "name": title,
+        "path": ".github/workflows/flaky-rerun.yml",
         "display_title": title,
         "conclusion": "failure",
     } | fields
@@ -231,6 +233,19 @@ def test_completed_detect_rerun_runs_the_graph(
     assert state["callback_url"] == "https://github.com/acme/shop/actions/runs/111"
     assert (state["fix_branch"], state["fix_sha"]) == ("", "")
     assert check_flaky(state) == {"is_flaky": True}
+
+
+def test_successful_detect_rerun_is_analyzed_not_treated_as_ci(
+    client: TestClient, fake_github: FakeGitHub, fake_graph: FakeGraph
+) -> None:
+    # flaky-rerun.yml's test step is continue-on-error, so a detect rerun usually
+    # completes "success" — it must still reach phase B, not phase A's conclusion check.
+    seed_detect_rerun(fake_github)
+
+    ack = post_run_event(client, **rerun_completed(conclusion="success"))
+
+    assert ack["action"] == "analysis_scheduled"
+    assert len(fake_graph.invocations) == 1
 
 
 def test_ci_failure_that_passes_every_rerun_is_still_flaky(

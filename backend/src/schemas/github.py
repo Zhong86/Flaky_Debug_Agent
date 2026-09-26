@@ -29,6 +29,9 @@ class WorkflowRun(_GitHubModel):
     id: int
     name: str
     display_title: str = ""
+    # The workflow file, e.g. ".github/workflows/flaky-rerun.yml". Unlike `name`, it
+    # doesn't change once the run's run-name is evaluated.
+    path: str = ""
     head_branch: str | None = None
     head_sha: str
     status: str | None = None

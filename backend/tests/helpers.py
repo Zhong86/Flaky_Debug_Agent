@@ -143,6 +143,7 @@ def workflow_run(
     *,
     run_id: int = 111,
     name: str = "CI",
+    path: str = ".github/workflows/ci.yml",
     conclusion: str | None = "failure",
     display_title: str = "Fix inventory race",
     head_repository: str = "acme/shop",
@@ -153,6 +154,7 @@ def workflow_run(
     return {
         "id": run_id,
         "name": name,
+        "path": path,
         "display_title": display_title,
         "head_branch": "feature/inventory",
         "head_sha": "abc123def",
