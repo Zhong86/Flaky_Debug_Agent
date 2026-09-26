@@ -7,7 +7,8 @@ Phase B — that detect rerun completed: collect its JUnit XML (plus the origina
           run's, as attempt 0), turn it into `rerun_results` and invoke the graph.
           The thread_id is the original run id, so the dashboard shows one row per
           failed CI run.
-Only "detect" reruns are analysed; any other rerun purpose is ignored.
+Retest runs dispatched by the graph's own retest_flaky node are never analysed
+here — that node waits for them itself.
 """
 
 import logging
@@ -126,7 +127,7 @@ def run_payload(repository: str, run: WorkflowRun, rerun: WorkflowRun | None = N
     """The `github_payload` the graph sees: a flat, token-free summary of the failed CI run.
 
     `repository` is the `owner/repo` string clone_repo and the dashboard expect, and
-    `branch` is what clone_repo checks out.
+    `branch` / `sha` are what clone_repo and retest_flaky read.
     """
     return {
         "repository": repository,
@@ -181,6 +182,10 @@ async def analyze_reports(
             "is_flaky": False,
             "repo_path": "",
             "debug_findings": "",
+            "fix_applied": False,
+            "fix_branch": "",
+            "fix_sha": "",
+            "retest_passed": False,
             "document": "",
             "callback_url": callback_url,
             "installation_id": installation_id,

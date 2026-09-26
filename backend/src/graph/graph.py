@@ -2,7 +2,15 @@ from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
-from graph.nodes import check_flaky, clone_repo, debug_agent, documents, output
+from graph.nodes import (
+    check_flaky,
+    clone_repo,
+    code_fix,
+    debug_agent,
+    documents,
+    output,
+    retest_flaky,
+)
 from graph.state import GraphState
 
 
@@ -11,7 +19,7 @@ def _route_flaky(state: GraphState) -> str:
 
 
 def _route_cloned(state: GraphState) -> str:
-    # Without a checkout there's nothing for Bob to investigate or report on.
+    # Without a checkout there's nothing for Bob to investigate, fix or retest.
     return "debug_agent" if state["repo_path"] else "output"
 
 
@@ -20,6 +28,8 @@ builder = StateGraph(GraphState)
 builder.add_node("check_flaky", check_flaky)
 builder.add_node("clone_repo", clone_repo)
 builder.add_node("debug_agent", debug_agent)
+builder.add_node("code_fix", code_fix)
+builder.add_node("retest_flaky", retest_flaky)
 builder.add_node("documents", documents)
 builder.add_node("output", output)
 
@@ -28,7 +38,9 @@ builder.set_entry_point("check_flaky")
 builder.add_conditional_edges("check_flaky", _route_flaky)
 
 builder.add_conditional_edges("clone_repo", _route_cloned)
-builder.add_edge("debug_agent", "documents")
+builder.add_edge("debug_agent", "code_fix")
+builder.add_edge("code_fix", "retest_flaky")
+builder.add_edge("retest_flaky", "documents")
 builder.add_edge("documents", "output")
 builder.add_edge("output", END)
 

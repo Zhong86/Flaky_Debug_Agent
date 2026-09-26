@@ -20,6 +20,9 @@ filter_async_git_diff(repo_path)
 read_source_code(file_path)
     Read and return the raw text of any source file.
 
+write_fixed_code(file_path, new_code)
+    Overwrite a file with corrected source code.
+
 report_dir(subfolder)
     Ensure and return the flaky_debug/<subfolder> directory that
     documenter_agent asks Bob to write its report into directly.
@@ -232,6 +235,17 @@ def read_source_code(file_path: str) -> str:
 # ---------------------------------------------------------------------------
 # Write helpers
 # ---------------------------------------------------------------------------
+
+
+def write_fixed_code(file_path: str, new_code: str) -> str:
+    """Overwrite *file_path* with *new_code*.
+
+    Returns a confirmation string with the number of lines written.
+    """
+    path = Path(file_path)
+    path.write_text(new_code, encoding="utf-8")
+    line_count = new_code.count("\n") + 1
+    return f"Written {line_count} lines to {file_path}"
 
 
 def report_dir(subfolder: str = "reports") -> Path:

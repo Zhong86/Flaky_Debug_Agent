@@ -67,9 +67,9 @@ async def github_webhook(
         if title is None:
             return _ignored("rerun's run-name doesn't follow the flaky-rerun.yml contract")
         if title.purpose != "detect":
-            # The backend only ever dispatches detect reruns; anything else (e.g. a
-            # manual "retest" from the template's purpose input) isn't ours to analyse.
-            return _ignored("only detect reruns are analyzed")
+            # retest_flaky dispatched this one and is polling it itself; analysing it
+            # here would start a new graph run that retests again, forever.
+            return _ignored("retest runs are awaited by the retest_flaky node")
         if title.original_run_id is None:
             return _ignored("detect rerun has no original run id")
 

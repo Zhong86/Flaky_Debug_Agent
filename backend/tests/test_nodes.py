@@ -1,4 +1,4 @@
-"""graph/nodes.py's clone_repo, where the graph goes after a clone, and the graph's shape."""
+"""graph/nodes.py's git plumbing (clone_repo, code_fix) and where the graph goes after a clone."""
 
 import base64
 import subprocess
@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from graph import nodes
-from graph.graph import _route_cloned, builder
+from graph.graph import _route_cloned
 from tests.helpers import GITHUB_TOKEN
 
 # What git prints when GitHub rejects the credentials and there's no terminal to prompt on.
@@ -87,13 +87,14 @@ def test_route_after_clone(repo_path: str, next_node: str) -> None:
     assert _route_cloned(state(repo_path=repo_path)) == next_node
 
 
-def test_graph_only_detects_investigates_and_reports() -> None:
-    # No code fix and no retest: the agent never changes the watched repo.
-    assert set(builder.nodes) == {
-        "check_flaky",
-        "clone_repo",
-        "debug_agent",
-        "documents",
-        "output",
-    }
-    assert {("debug_agent", "documents"), ("documents", "output")} <= builder.edges
+async def test_fix_branch_is_pushed_with_basic_auth(
+    fake_git: FakeGit, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(nodes, "fixer_agent", lambda _state: {"fix_applied": True})
+
+    result = await nodes.code_fix(state(repo_path="/tmp/flaky-debug-x"))
+
+    assert_basic_auth(fake_git.command("push"))
+    assert result["fix_applied"] is True
+    assert result["fix_branch"].startswith("flaky-fix/")
+    assert result["fix_sha"] == "abc123"

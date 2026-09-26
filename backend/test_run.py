@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-test_run.py -- Local smoke-test for investigator_agents.
+test_run.py -- Local smoke-test for investigator_agents and fixer_agent.
 
 Run from the `backend/` directory:
 
@@ -16,15 +16,16 @@ Prerequisites
 2. The IBM Bob CLI must be installed and on PATH:
        bobshell --version
 
-   All AI reasoning (investigation + documentation) is delegated to
-   bobshell as a subprocess.  No Watsonx API keys are required.
+   All AI reasoning (investigation + fixing + documentation) is delegated
+   to bobshell as a subprocess.  No Watsonx API keys are required.
 
 What this script does
 ---------------------
 Step 1  Bootstrap sys.path so graph.* imports resolve from backend/src/
 Step 2  Build a mock GraphState with is_flaky=True and simulated CI logs
 Step 3  Call investigator_agents(state)  -- Bob acts as Alpha+Beta+Gamma
-Step 4  Print the findings
+Step 4  Merge findings into state
+Step 5  Call fixer_agent(state)          -- Bob applies the fix directly
 """
 
 from __future__ import annotations
@@ -43,7 +44,7 @@ if str(_BACKEND_SRC) not in sys.path:
 # ---------------------------------------------------------------------------
 # 2. Import agents  (deferred until after sys.path is set)
 # ---------------------------------------------------------------------------
-from graph.agents import investigator_agents  # noqa: E402
+from graph.agents import fixer_agent, investigator_agents  # noqa: E402
 from graph.state import GraphState  # noqa: E402
 
 # ---------------------------------------------------------------------------
@@ -78,6 +79,8 @@ initial_state: GraphState = {
     "logs": MOCK_LOGS,
     "is_flaky": True,
     "debug_findings": "",        # populated by investigator_agents
+    "fix_applied": False,
+    "retest_passed": False,
     "document": "",
     "callback_url": "",
 }
@@ -122,15 +125,45 @@ else:
     print("  (empty -- agents returned no findings)")
 
 # ---------------------------------------------------------------------------
-# 6. Final summary
+# 6. Step 2 -- fixer_agent
+# ---------------------------------------------------------------------------
+updated_state: GraphState = {**initial_state, "debug_findings": debug_findings}
+
+_section("STEP 2 -- fixer_agent  (Bob applies the fix via bobshell)")
+print(
+    "  Builds a fix prompt from debug_findings (is_flaky=True path) and calls:\n"
+    "    bobshell --prompt <prompt>\n"
+    "  Bob reads the files, applies the minimal fix, and reports back.\n"
+    "  Expected: fix_applied=True when bobshell exits with code 0.\n"
+    "            fix_applied=False if bobshell is not installed or fails.\n"
+)
+
+try:
+    fixer_result = fixer_agent(updated_state)
+except Exception as exc:
+    fixer_result = {"fix_applied": False}
+    print(f"\n  ERROR in fixer_agent: {exc}\n")
+
+_section("fixer_agent -> result")
+print(f"  fix_applied : {fixer_result.get('fix_applied')}")
+print(
+    "\n  Interpretation:\n"
+    "    True  -- bobshell exited 0; Bob read the context and applied the fix.\n"
+    "    False -- bobshell not found, timed out, or exited non-zero.\n"
+    "             Install the IBM Bob CLI and ensure it is on PATH.\n"
+)
+
+# ---------------------------------------------------------------------------
+# 7. Final summary
 # ---------------------------------------------------------------------------
 _section("SMOKE-TEST COMPLETE")
 print(
-    f"  is_flaky       : {initial_state['is_flaky']}\n"
+    f"  is_flaky       : {updated_state['is_flaky']}\n"
     f"  debug_findings : {len(debug_findings)} chars\n"
+    f"  fix_applied    : {fixer_result.get('fix_applied')}\n"
     f"\n"
     f"  Next step:\n"
     f"    Ensure 'bobshell' is installed and on PATH, then re-run.\n"
-    f"    All intelligence (investigation + docs) flows through bobshell.\n"
+    f"    All intelligence (investigation + fixing + docs) flows through bobshell.\n"
     f"    No API keys or cloud credentials are needed.\n"
 )

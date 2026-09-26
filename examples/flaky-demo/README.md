@@ -6,8 +6,8 @@ A tiny shop service whose test suite is **flaky**: one test fails about half the
 
 1. **Deploy** (`.github/workflows/deploy.yml`) runs the tests. If they pass, the `deploy` job ships to the `production` environment (a mock step). If they fail, the deploy is skipped and the JUnit report is uploaded as the `junit-results` artifact.
 2. GitHub notifies the Flaky Debug Agent through the repo webhook. The agent reads the failing tests from `junit-results` and dispatches **Flaky Rerun** (`.github/workflows/flaky-rerun.yml`), which reruns just those tests 5 times in parallel.
-3. The agent classifies the result. A test that both passed and failed is flaky, so IBM Bob investigates the likely root cause (read-only) and writes a report. The agent never pushes anything to this repo.
-4. Every step, and the report, shows up on the agent's dashboard.
+3. The agent classifies the result. A test that both passed and failed is flaky, so IBM Bob investigates, fixes the code on a `flaky-fix/…` branch, and the fix is retested the same way.
+4. Every step shows up on the agent's dashboard.
 
 The "Deploy" workflow is manually re-runnable (**Actions → Deploy → Run workflow**), because the flaky test passes about half the time.
 

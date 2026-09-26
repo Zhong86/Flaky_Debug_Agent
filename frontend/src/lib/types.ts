@@ -23,6 +23,8 @@ export type RunSummary = {
   thread_id: string;
   repository?: Repository;
   is_flaky?: boolean | null;
+  fix_applied?: boolean | null;
+  retest_passed?: boolean | null;
   document?: string | null;
   updated_at?: string | null;
 };
@@ -35,6 +37,8 @@ export type GraphValues = {
   is_flaky?: boolean;
   repo_path?: string;
   debug_findings?: string;
+  fix_applied?: boolean;
+  retest_passed?: boolean;
   document?: string;
   callback_url?: string;
   [key: string]: unknown;

@@ -29,7 +29,7 @@ const DOT_CLASSES: Record<"green" | "orange" | "zinc", string> = {
   zinc: "bg-zinc-300 dark:bg-zinc-700",
 };
 
-/** What the graph concludes — failing tests, flaky verdict, report — pulled from the final state. */
+/** The six things the graph concludes, pulled from the final state. */
 function RunSummaryPanel({
   threadId,
   values,
@@ -47,7 +47,7 @@ function RunSummaryPanel({
           to output — call that out rather than burying it. */}
       {values.repo_path === "" ? (
         <div className="rounded-xl border border-orange-300 bg-orange-50 p-3 text-sm text-orange-900 dark:border-orange-500/30 dark:bg-orange-500/10 dark:text-orange-200">
-          <span className="font-medium">Repository clone failed.</span> The investigation and report were skipped;
+          <span className="font-medium">Repository clone failed.</span> The debug agent and code fix were skipped;
           the clone step in the timeline shows git&apos;s error.
         </div>
       ) : null}
@@ -66,18 +66,37 @@ function RunSummaryPanel({
         </div>
       </Card>
 
-      <Card className="p-4">
-        <SectionLabel>Classification</SectionLabel>
-        <div className="mt-2">
-          <Verdict
-            value={values.is_flaky}
-            trueLabel="Flaky"
-            falseLabel="Real failure"
-            trueTone="orange"
-            pendingLabel="Not classified"
-          />
-        </div>
-      </Card>
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Card className="p-4">
+          <SectionLabel>Classification</SectionLabel>
+          <div className="mt-2">
+            <Verdict
+              value={values.is_flaky}
+              trueLabel="Flaky"
+              falseLabel="Real failure"
+              trueTone="orange"
+              pendingLabel="Not classified"
+            />
+          </div>
+        </Card>
+        <Card className="p-4">
+          <SectionLabel>Code fix</SectionLabel>
+          <div className="mt-2">
+            <Verdict
+              value={values.fix_applied}
+              trueLabel="Applied"
+              falseLabel="Not applied"
+              pendingLabel="Not attempted"
+            />
+          </div>
+        </Card>
+        <Card className="p-4">
+          <SectionLabel>Retest</SectionLabel>
+          <div className="mt-2">
+            <Verdict value={values.retest_passed} trueLabel="Passed" falseLabel="Failed" pendingLabel="Not run" />
+          </div>
+        </Card>
+      </div>
 
       {values.document ? (
         <Card className="p-4">

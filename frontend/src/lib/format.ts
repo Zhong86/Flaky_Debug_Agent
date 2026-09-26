@@ -45,6 +45,8 @@ export const NODE_META: Record<string, { label: string; blurb: string }> = {
   check_flaky: { label: "Flaky Check", blurb: "Classifies reruns as flaky or a real failure" },
   clone_repo: { label: "Clone Repo", blurb: "Checks the repository out for the agents to read" },
   debug_agent: { label: "Debug Agent", blurb: "Investigates root cause" },
+  code_fix: { label: "Code Fix", blurb: "Applies a patch to the test or source" },
+  retest_flaky: { label: "Retest", blurb: "Re-runs the test to confirm the fix" },
   documents: { label: "Documentation", blurb: "Writes the run report to disk" },
   output: { label: "Output", blurb: "Final summary / callback" },
 };
@@ -74,12 +76,13 @@ export function visibleDiffEntries(changed: Record<string, unknown>): [string, u
 /**
  * Colour for a step's timeline dot, so the rail can be skimmed for trouble.
  * Orange means "this node ran but wrote something that needs attention" — a failed
- * clone or a real (non-flaky) failure.
+ * clone, a skipped fix, a failed retest, or a real (non-flaky) failure.
  */
 export function stepTone(step: RunStep): "green" | "orange" | "zinc" {
   if (step.node === null) return "zinc";
-  const { repo_path, is_flaky } = step.changed;
-  const needsAttention = repo_path === "" || is_flaky === false;
+  const { repo_path, is_flaky, fix_applied, retest_passed } = step.changed;
+  const needsAttention =
+    repo_path === "" || is_flaky === false || fix_applied === false || retest_passed === false;
   return needsAttention ? "orange" : "green";
 }
 
@@ -87,6 +90,8 @@ export const STATE_KEY_LABELS: Record<string, string> = {
   is_flaky: "Flaky verdict",
   rerun_results: "Rerun results",
   debug_findings: "Findings",
+  fix_applied: "Fix applied",
+  retest_passed: "Retest passed",
   document: "Report",
   logs: "Logs",
   repo_path: "Repo path",

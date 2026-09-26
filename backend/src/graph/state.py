@@ -9,9 +9,13 @@ class GraphState(TypedDict):
 
     repo_path: str
     debug_findings: str
+    fix_applied: bool
+    fix_branch: str
+    fix_sha: str
+    retest_passed: bool
     document: str
     callback_url: str
     # The GitHub App installation this run's webhook came from (None: JUnit ingest, no App
-    # configured, or the App isn't installed there) — clone_repo falls back to GITHUB_TOKEN
-    # when it's absent.
+    # configured, or the App isn't installed there) — clone_repo/code_fix/retest_flaky fall
+    # back to GITHUB_TOKEN when it's absent.
     installation_id: int | None

@@ -19,7 +19,7 @@ Only ngrok is reachable from the internet. Postgres, the backend and the dashboa
 - **The demo repo** on GitHub, created in step 3 from `examples/flaky-demo/`. It must be **public**, because the agent clones it without credentials.
 - **GitHub fine-grained personal access token**, with *Repository access* set to the demo repo only, and these permissions:
   - Actions: read & write (dispatch reruns, download test reports)
-  - Contents: read (clone the repo for Bob's investigation)
+  - Contents: read & write (push Bob's fix branch)
   - Metadata: read
 
 ## 1. Start the stack
@@ -72,7 +72,8 @@ The first build takes a few minutes: it installs Python and Node dependencies an
   1. `rerun_scheduled`, when Deploy fails.
   2. A **Flaky Rerun (detect)** run in Actions that repeats the failing test 5 times.
   3. `analysis_scheduled`, when that rerun completes.
-- **Dashboard:** a row appears for the failed Deploy run. Open it to follow each graph step: the flaky verdict, Bob's investigation and the report. Nothing is pushed to the demo repo.
+  4. Later, a **Flaky Rerun (retest)** run to verify Bob's fix. Its delivery is `ignored` on purpose, because the graph waits for it directly.
+- **Dashboard:** a row appears for the failed Deploy run. Open it to follow each graph step: flaky verdict, Bob's findings, the fix branch (`flaky-fix/…` in the demo repo), the retest and the report.
 
 ## Operating it
 
@@ -99,6 +100,6 @@ Run history and bug reports live in the `pgdata` and `reports` Docker volumes, s
 
 ## Security notes
 
-- **Bob reads code from the watched repo, but never runs it or changes it.** It investigates the cloned repo in read-only *ask* mode and writes the report in *plan* mode (edit, no execute) inside the reports folder. All of this happens in the backend container, as a non-root user, with no Docker socket and no host folders mounted. Keep the token scoped to the demo repo only.
+- **Bob executes code from the watched repo.** Its agent mode edits and runs commands inside the cloned demo repo, inside the backend container, as a non-root user, with no Docker socket and no host folders mounted. Keep the token scoped to the demo repo only.
 - **The dashboard and `/api/runs` have no login.** Anyone with the URL can read run history and Bob's findings. That's fine for a demo; add authentication before pointing this at private code. The webhook endpoints are protected by their signature.
 - **Stopping everything:** `docker compose -f deploy/compose.yaml down` takes the public URL offline.
