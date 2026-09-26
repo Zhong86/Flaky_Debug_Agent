@@ -21,10 +21,6 @@ initial_state = {
     "is_flaky": False,
     "repo_path": "",
     "debug_findings": "",
-    "fix_applied": False,
-    "fix_branch": "",
-    "fix_sha": "",
-    "retest_passed": False,
     "document": "",
     "callback_url": "https://example.com/callback/12345",
 }

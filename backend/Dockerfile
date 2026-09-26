@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # Flaky Debug Agent API: FastAPI + the LangGraph graph, plus the tools the graph
-# shells out to: git (clone_repo, code_fix) and IBM Bob Shell (`bob`, Node.js 22.15+).
+# shells out to: git (clone_repo) and IBM Bob Shell (`bob`, Node.js 22.15+).
 # Built by deploy/compose.yaml with backend/ as the build context.
 
 FROM node:24-bookworm-slim AS node
@@ -38,7 +38,7 @@ COPY src ./src
 # which the report paths above rely on.
 RUN uv sync --frozen --no-dev
 
-# Bob's agent mode runs commands inside cloned user repos: never as root.
+# Bob reads cloned user repos (untrusted content): never as root.
 RUN useradd --create-home --uid 10001 app \
     && mkdir -p /app/flaky_debug \
     && chown app:app /app/flaky_debug

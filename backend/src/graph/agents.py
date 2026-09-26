@@ -3,10 +3,11 @@ agents.py -- LangGraph node functions for the Flaky Debug Agent.
 
 Architecture
 ------------
-The Python backend is a pure orchestrator.  All AI reasoning and code
-modification is delegated to the local IBM Bob CLI (``bob run``) via
-``call_ibm_bob_cli``.  There are no LLM libraries, no Watsonx SDK, and
-no langchain imports anywhere in this file.
+The Python backend is a pure orchestrator.  All AI reasoning is delegated
+to the local IBM Bob CLI (``bob run``) via ``call_ibm_bob_cli``.  Bob only
+reads the watched repo and writes the report -- it never modifies the repo.
+There are no LLM libraries, no Watsonx SDK, and no langchain imports
+anywhere in this file.
 
 Nodes
 -----
@@ -20,22 +21,11 @@ investigator_agents(state)
     state["debug_findings"].  Runs Bob in "ask" mode -- pure read-only
     investigation, no Edit or Execute access.
 
-fixer_agent(state)
-    FIX step, called from graph.nodes.code_fix.  Builds a fix prompt from
-    the debug_findings (flaky path) or raw CI logs (deterministic path) and
-    tells Bob to apply the minimal code change directly inside
-    state["repo_path"].  Runs Bob in "agent" mode (Edit + Execute) since it
-    needs to modify files and may need to run commands.  Sets
-    state["fix_applied"] = True on success; the git branch/commit/push
-    plumbing lives in graph.nodes.code_fix, not here.
-
 documenter_agent(state)
     DOCUMENT step, called from graph.nodes.documents.  Runs Bob in "plan"
-    mode (Edit, no Execute) with its workspace scoped to
-    flaky_debug/success/ or flaky_debug/fail/ (depending on
-    state["retest_passed"]) and asks it to write the bug-report markdown
-    file directly at a path we hand it.  Sets state["document"] to that
-    path.
+    mode (Edit, no Execute) with its workspace scoped to flaky_debug/reports/
+    and asks it to write the bug-report markdown file directly at a path we
+    hand it.  Sets state["document"] to that path.
 
 IBM Bob CLI
 -----------
@@ -132,86 +122,6 @@ def investigator_agents(state: GraphState) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# fixer_agent -- FIX step
-# ---------------------------------------------------------------------------
-
-
-def fixer_agent(state: GraphState) -> dict:
-    """Delegate code fixing to IBM Bob CLI.
-
-    Builds a fix prompt and passes it to ``bob run --mode agent``.  Bob is
-    responsible for reading the relevant files and applying the minimal
-    correct change directly inside the repository working directory.
-
-    Two source modes
-    ----------------
-    ``is_flaky == True``
-        Bob receives the full Alpha / Beta / Gamma debug_findings so it can
-        apply a targeted, evidence-based fix.
-
-    ``is_flaky == False``
-        The failure is deterministic.  Bob receives the raw CI logs and is
-        summoned immediately -- no prior investigation output is available.
-
-    State updates
-    -------------
-    ``fix_applied`` -- set to True when bob exits successfully.  The
-    caller (graph.nodes.code_fix) is responsible for committing and pushing
-    whatever Bob changed inside state["repo_path"].
-    """
-    logs: str = state.get("logs", "")
-    is_flaky: bool = state.get("is_flaky", False)
-    debug_findings: str = state.get("debug_findings", "")
-    repo_path: str = state.get("repo_path") or "."
-    rerun_results: list[dict] = state.get("rerun_results", [])
-    test_ids = ", ".join(r["test_id"] for r in rerun_results) or "(unknown)"
-
-    if is_flaky:
-        context_section = (
-            "== INVESTIGATION FINDINGS (Alpha / Beta / Gamma) ==\n"
-            f"{debug_findings or '(no findings available)'}"
-        )
-        instruction = (
-            "The test suite was confirmed **flaky** (intermittent failures). "
-            "Three specialist sub-agents have investigated the root cause above. "
-            "Apply the minimal code fix that permanently eliminates the flakiness. "
-            "Do NOT refactor unrelated code."
-        )
-    else:
-        context_section = (
-            "== CI FAILURE LOGS ==\n"
-            f"{logs or '(none provided)'}"
-        )
-        instruction = (
-            "The CI pipeline failed with a **deterministic** (non-flaky) error. "
-            "Review the logs above and apply the minimal fix directly."
-        )
-
-    prompt = (
-        "You are the Master Agent for a flaky-test debugging system.\n"
-        f"{instruction}\n\n"
-        f"Repository  : {repo_path}\n"
-        f"Flaky tests : {test_ids}\n\n"
-        f"{context_section}\n"
-    )
-
-    print(
-        f"[fixer_agent] Calling bob (mode=agent) | "
-        f"case={'flaky' if is_flaky else 'deterministic'} | repo={repo_path}"
-    )
-
-    response = call_ibm_bob_cli(prompt, repo_path=repo_path, mode="agent")
-    fix_applied = not response.startswith("[bobshell error]")
-
-    if fix_applied:
-        print(f"[fixer_agent] Bob applied the fix. Response length: {len(response)} chars.")
-    else:
-        print(f"[fixer_agent] Bob CLI returned an error:\n{response[:300]}")
-
-    return {"fix_applied": fix_applied}
-
-
-# ---------------------------------------------------------------------------
 # documenter_agent -- DOCUMENT step
 # ---------------------------------------------------------------------------
 
@@ -220,16 +130,13 @@ def documenter_agent(state: GraphState) -> dict:
     """Ask IBM Bob CLI to write the final markdown bug-report directly.
 
     Runs Bob in "plan" mode (Edit, no Execute) with its workspace scoped to
-    flaky_debug/success/ or flaky_debug/fail/ (depending on
-    state["retest_passed"]) and hands it the exact file path to create --
-    Bob writes the report itself instead of returning text for Python to
-    persist.
+    flaky_debug/reports/ and hands it the exact file path to create -- Bob
+    writes the report itself instead of returning text for Python to persist.
 
     Sets state["document"] to the written file path.
     """
     github_payload: dict = state.get("github_payload", {})
-    subfolder = "success" if state.get("retest_passed") else "fail"
-    output_dir = report_dir(subfolder)
+    output_dir = report_dir()
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     target_path = output_dir / f"bug_report_{timestamp}.md"
 
@@ -242,16 +149,11 @@ def documenter_agent(state: GraphState) -> dict:
         "  2. Statistical Failure Baseline\n"
         "  3. Race Conditions Found\n"
         "  4. Test Order Dependencies Found\n"
-        "  5. Fix Applied\n"
-        "  6. Retest Outcome\n"
-        "  7. Recommendations\n\n"
+        "  5. Recommendations\n\n"
         "== SESSION STATE ==\n"
         f"Repository   : {github_payload.get('repository', 'unknown')}\n"
         f"Rerun results: {state.get('rerun_results', [])}\n"
-        f"Is flaky     : {state.get('is_flaky')}\n"
-        f"Fix applied  : {state.get('fix_applied')}\n"
-        f"Fix branch   : {state.get('fix_branch') or '(none)'}\n"
-        f"Retest passed: {state.get('retest_passed')}\n\n"
+        f"Is flaky     : {state.get('is_flaky')}\n\n"
         "== INVESTIGATION FINDINGS ==\n"
         f"{state.get('debug_findings', '(none)')}\n\n"
         "== CI LOGS ==\n"
