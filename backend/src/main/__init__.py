@@ -7,6 +7,7 @@ from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from api.router import api_router
 from core.config import get_settings
 from graph.graph import compile_graph
+from services import log_buffer
 
 
 @asynccontextmanager
@@ -29,6 +30,10 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # Not in lifespan(): tests build TestClient(app) without `with` so lifespan
+    # (which needs Postgres) never runs, but this needs no async setup.
+    app.state.log_buffer = log_buffer.install(capacity=settings.demo_log_buffer_size)
 
     app.include_router(api_router, prefix="/api")
     return app

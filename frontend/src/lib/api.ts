@@ -1,4 +1,11 @@
-import type { RunSummary, RunTimeline } from "./types";
+import type {
+  BackendLogs,
+  DemoDispatchResponse,
+  DemoJobLogs,
+  DemoRun,
+  RunSummary,
+  RunTimeline,
+} from "./types";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api";
 
@@ -44,4 +51,20 @@ export async function getRunReport(threadId: string, init?: RequestInit): Promis
   }
 
   return res.text();
+}
+
+export function dispatchDemoRun(init?: RequestInit): Promise<DemoDispatchResponse> {
+  return apiFetch<DemoDispatchResponse>("/demo/dispatch", { ...init, method: "POST" });
+}
+
+export function getDemoRun(runId: number, init?: RequestInit): Promise<DemoRun> {
+  return apiFetch<DemoRun>(`/demo/runs/${runId}`, init);
+}
+
+export function getDemoJobLogs(jobId: number, init?: RequestInit): Promise<DemoJobLogs> {
+  return apiFetch<DemoJobLogs>(`/demo/jobs/${jobId}/logs`, init);
+}
+
+export function getBackendLogs(limit = 200, init?: RequestInit): Promise<BackendLogs> {
+  return apiFetch<BackendLogs>(`/demo/backend-logs?limit=${limit}`, init);
 }

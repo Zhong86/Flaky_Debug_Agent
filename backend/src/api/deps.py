@@ -5,6 +5,7 @@ from langgraph.graph.state import CompiledStateGraph
 
 from core.config import Settings, get_settings
 from core.security import verify_github_signature
+from services.log_buffer import RingBufferHandler
 
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 
@@ -30,3 +31,10 @@ def get_graph(request: Request) -> CompiledStateGraph | None:
 
 
 GraphDep = Annotated[CompiledStateGraph | None, Depends(get_graph)]
+
+
+def get_log_buffer(request: Request) -> RingBufferHandler:
+    return request.app.state.log_buffer
+
+
+LogBufferDep = Annotated[RingBufferHandler, Depends(get_log_buffer)]
