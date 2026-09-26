@@ -73,6 +73,19 @@ export function visibleDiffEntries(changed: Record<string, unknown>): [string, u
   return Object.entries(changed).filter(([key]) => !DIFF_HIDDEN_KEYS.has(key));
 }
 
+/**
+ * Colour for a step's timeline dot, so the rail can be skimmed for trouble.
+ * Orange means "this node ran but wrote something that needs attention" — a failed
+ * clone, a skipped fix, a failed retest, or a real (non-flaky) failure.
+ */
+export function stepTone(step: RunStep): "green" | "orange" | "zinc" {
+  if (step.node === null) return "zinc";
+  const { repo_path, is_flaky, fix_applied, retest_passed } = step.changed;
+  const needsAttention =
+    repo_path === "" || is_flaky === false || fix_applied === false || retest_passed === false;
+  return needsAttention ? "orange" : "green";
+}
+
 export const STATE_KEY_LABELS: Record<string, string> = {
   is_flaky: "Flaky verdict",
   rerun_results: "Rerun results",

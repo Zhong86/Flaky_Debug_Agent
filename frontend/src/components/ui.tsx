@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 
-type Tone = "green" | "red" | "orange" | "blue" | "zinc";
+/** Green = good, orange = needs attention, red = outright failure, zinc = not yet known. */
+type Tone = "green" | "red" | "orange" | "zinc";
 
 const TONE_CLASSES: Record<Tone, string> = {
   green:
@@ -8,7 +9,6 @@ const TONE_CLASSES: Record<Tone, string> = {
   red: "bg-red-50 text-red-700 ring-red-600/20 dark:bg-red-500/10 dark:text-red-300 dark:ring-red-400/20",
   orange:
     "bg-orange-50 text-orange-800 ring-orange-600/20 dark:bg-orange-500/10 dark:text-orange-300 dark:ring-orange-400/20",
-  blue: "bg-blue-50 text-blue-700 ring-blue-600/20 dark:bg-blue-500/10 dark:text-blue-300 dark:ring-blue-400/20",
   zinc: "bg-zinc-100 text-zinc-600 ring-zinc-500/20 dark:bg-zinc-500/10 dark:text-zinc-400 dark:ring-zinc-400/20",
 };
 
