@@ -344,3 +344,20 @@ async def test_rerun_and_wait_retests_and_returns_every_test(fake_github: FakeGi
     # retest_flaky's own check: a fully green retest must come back non-empty.
     assert results and all(r["passed"] == r["attempts"] == 2 for r in results)
     assert POLLED in {r["test_id"] for r in results}
+
+
+async def test_retest_uses_the_repos_framework_not_pytest(fake_github: FakeGitHub) -> None:
+    # A Java repo retested with pytest fails at `pip install -r requirements.txt`, so
+    # the retest could never pass: it must get the same detection as the detect rerun.
+    title = github_dispatch.rerun_title("retest", "", "f1x")
+    fake_github.workflow_runs = [workflow_run(run_id=301, name="Flaky Rerun", display_title=title)]
+    fake_github.runs[301] = workflow_run(run_id=301, name="Flaky Rerun", conclusion="success")
+    fake_github.set_repo_tree("pom.xml", "mvnw")
+
+    await github_dispatch.rerun_and_wait(REPO, ref="flaky-fix/1", sha="f1x", test_ids=[POLLED])
+
+    [dispatch] = fake_github.dispatches()
+    assert dispatch["inputs"]["framework"] == "maven"
+    # Detected on the commit being retested (the fix), not the original run's.
+    [listing] = [r for r in fake_github.requests if r.url.path == f"/repos/{REPO}/contents"]
+    assert listing.url.params["ref"] == "f1x"

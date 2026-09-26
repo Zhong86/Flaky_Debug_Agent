@@ -152,7 +152,7 @@ async def rerun_and_wait(
     ref: str,
     sha: str,
     test_ids: list[str],
-    framework: str = "pytest",
+    framework: str | None = None,
     attempts: int | None = None,
     original_run_id: str = "",
     installation_id: int | None = None,
@@ -160,8 +160,12 @@ async def rerun_and_wait(
     """Dispatch flaky-rerun.yml as a retest, wait for it, and return the parsed per-test results.
 
     The run is tagged `retest`, so the webhook leaves it alone instead of starting
-    a new analysis from it.
+    a new analysis from it. Without an explicit *framework*, it's detected from the
+    commit being retested — the same way the detect rerun picks it — so a Maven repo
+    isn't retested with pytest.
     """
+    if framework is None:
+        framework = await detect_framework(repo, sha, installation_id=installation_id)
     purpose: Purpose = "retest"
     dispatched_at = await dispatch_workflow(
         repo,
