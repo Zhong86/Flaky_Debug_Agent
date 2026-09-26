@@ -65,3 +65,65 @@ export type RunTimeline = {
   thread_id: string;
   steps: RunStep[];
 };
+
+/**
+ * Shapes returned by the judge-facing demo API (`backend/src/api/routes/demo.py`):
+ * dispatch `deploy.yml` by hand and watch it run, like `gh run watch` in the browser.
+ */
+
+export type DemoConfig = {
+  configured: boolean;
+  repo: string;
+  workflow_file: string;
+  ref: string;
+  repo_url: string | null;
+  actions_url: string | null;
+};
+
+export type DemoDispatchResponse = {
+  run_id: number;
+  html_url: string;
+  status: string;
+};
+
+export type DemoStep = {
+  name: string;
+  number: number;
+  status: string;
+  conclusion: string | null;
+};
+
+export type DemoJob = {
+  id: number;
+  name: string;
+  status: string;
+  conclusion: string | null;
+  started_at: string | null;
+  completed_at: string | null;
+  steps: DemoStep[];
+};
+
+export type DemoRun = {
+  run_id: number;
+  status: string;
+  conclusion: string | null;
+  html_url: string;
+  jobs: DemoJob[];
+};
+
+export type DemoJobLogs = {
+  available: boolean;
+  logs: string;
+};
+
+/** One line from this backend's own `logging` output (services/log_buffer.py). */
+export type BackendLogEntry = {
+  timestamp: string;
+  level: string;
+  logger: string;
+  message: string;
+};
+
+export type BackendLogs = {
+  entries: BackendLogEntry[];
+};

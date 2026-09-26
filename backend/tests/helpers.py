@@ -41,6 +41,9 @@ class FakeGitHub:
         self.blobs: dict[str, bytes] = {}
         self.repo_tree: list[str] = []  # filenames at the repo root, for framework detection
         self.repo_files: dict[str, bytes] = {}  # path -> raw content, e.g. "package.json"
+        self.jobs: dict[int, list[dict[str, Any]]] = {}  # run_id -> jobs, for the demo run-status endpoint
+        self.job_logs: dict[int, str] = {}  # job_id -> raw text; absent job_id means "not started" (404)
+        self.installations: dict[str, int] = {}  # "owner/name" -> installation id; absent means "App not installed"
         self.dispatch_status = 204
         self.token_expires_at = "2099-01-01T00:00:00Z"
         self._next_artifact_id = 1
@@ -50,6 +53,12 @@ class FakeGitHub:
 
     def set_repo_file(self, path: str, content: bytes) -> None:
         self.repo_files[path] = content
+
+    def set_jobs(self, run_id: int, jobs: list[dict[str, Any]]) -> None:
+        self.jobs[run_id] = jobs
+
+    def set_job_logs(self, job_id: int, text: str) -> None:
+        self.job_logs[job_id] = text
 
     def add_artifact(self, run_id: int, name: str, archive: bytes, expired: bool = False) -> None:
         artifact_id = self._next_artifact_id
@@ -76,6 +85,11 @@ class FakeGitHub:
         path = request.url.path
         if request.url.host == "blob.example":
             return httpx.Response(200, content=self.blobs[path])
+        if re.fullmatch(r"/repos/[^/]+/[^/]+/installation", path):
+            repo = "/".join(path.split("/")[2:4])
+            if (installation_id := self.installations.get(repo)) is None:
+                return httpx.Response(404, json={"message": "Not Found"})
+            return httpx.Response(200, json={"id": installation_id})
         if re.fullmatch(r"/app/installations/\d+/access_tokens", path):
             token = {"token": INSTALLATION_TOKEN, "expires_at": self.token_expires_at}
             return httpx.Response(201, json=token)
@@ -89,6 +103,14 @@ class FakeGitHub:
         if match := re.fullmatch(r"/repos/[^/]+/[^/]+/actions/runs/(\d+)", path):
             run = self.runs.get(int(match.group(1)))
             return httpx.Response(200, json=run) if run else httpx.Response(404)
+        if match := re.fullmatch(r"/repos/[^/]+/[^/]+/actions/runs/(\d+)/jobs", path):
+            jobs = self.jobs.get(int(match.group(1)), [])
+            return httpx.Response(200, json={"total_count": len(jobs), "jobs": jobs})
+        if match := re.fullmatch(r"/repos/[^/]+/[^/]+/actions/jobs/(\d+)/logs", path):
+            job_id = int(match.group(1))
+            if job_id not in self.job_logs:
+                return httpx.Response(404, json={"message": "Not Found"})
+            return httpx.Response(200, content=self.job_logs[job_id].encode())
         if match := re.fullmatch(r"/repos/[^/]+/[^/]+/actions/artifacts/(\d+)/zip", path):
             location = f"https://blob.example/artifacts/{match.group(1)}.zip"
             return httpx.Response(302, headers={"Location": location})

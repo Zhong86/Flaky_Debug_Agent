@@ -1,4 +1,4 @@
-import type { Repository, RerunResult, RunStep } from "./types";
+import type { BackendLogEntry, Repository, RerunResult, RunStep } from "./types";
 
 /** Unwrap `github_payload.repository`, which may be an object or a bare string. */
 export function repoName(repository: Repository | undefined): string | null {
@@ -100,4 +100,49 @@ export const STATE_KEY_LABELS: Record<string, string> = {
 
 export function stateKeyLabel(key: string): string {
   return STATE_KEY_LABELS[key] ?? key;
+}
+
+/** Whether a node has actually executed yet, per the step timeline. */
+export function hasNodeRun(steps: RunStep[], node: string): boolean {
+  return steps.some((step) => step.node === node);
+}
+
+/**
+ * Keys GraphState initialises to a zero-value placeholder ("", false) rather than
+ * leaving unset, so the TypedDict is fully populated on the very first invoke. The
+ * initial "Run created" checkpoint has no previous step to diff against, so it dumps
+ * the whole state — these render as if a node had already run and failed unless
+ * called out as not started yet.
+ */
+export const PENDING_OUTCOME_KEYS = new Set([
+  "is_flaky",
+  "repo_path",
+  "debug_findings",
+  "fix_applied",
+  "fix_branch",
+  "fix_sha",
+  "retest_passed",
+  "document",
+]);
+
+/** Colour for a demo run/job/step's status badge, GitHub Actions-style. */
+export function runStatusTone(
+  status: string,
+  conclusion: string | null,
+): "green" | "orange" | "red" | "zinc" {
+  if (status !== "completed") return status === "in_progress" ? "orange" : "zinc";
+  if (conclusion === "success") return "green";
+  if (conclusion === "failure" || conclusion === "timed_out") return "red";
+  return "zinc"; // cancelled, skipped, neutral, ...
+}
+
+/** `services.demo`'s log lines, joined for a `CodeBlock`. */
+export function formatBackendLogs(entries: BackendLogEntry[]): string {
+  if (entries.length === 0) return "No backend activity yet.";
+  return entries
+    .map((entry) => {
+      const time = new Date(entry.timestamp).toLocaleTimeString(undefined, { hour12: false });
+      return `${time} ${entry.level.padEnd(7)} ${entry.logger} — ${entry.message}`;
+    })
+    .join("\n");
 }

@@ -27,9 +27,23 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       <body className="flex min-h-full flex-col bg-zinc-50 dark:bg-zinc-950">
         <header className="border-b border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
           <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-4">
-            <Link href="/" className="font-semibold text-zinc-900 dark:text-zinc-50">
-              Flaky Debug Agent
-            </Link>
+            <div className="flex items-center gap-4">
+              <Link href="/" className="font-semibold text-zinc-900 dark:text-zinc-50">
+                Flaky Debug Agent
+              </Link>
+              <nav className="flex items-center gap-3 text-sm">
+                <Link
+                  href="/demo"
+                  className="inline-flex items-center gap-2 rounded-full bg-emerald-600 px-3.5 py-1.5 font-medium text-white shadow-sm ring-1 ring-emerald-700/20 transition-colors hover:bg-emerald-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 dark:bg-emerald-500 dark:ring-emerald-400/30 dark:hover:bg-emerald-400 dark:hover:text-zinc-950"
+                >
+                  <span className="relative flex size-2">
+                    <span className="absolute inline-flex size-full animate-ping rounded-full bg-white/80" />
+                    <span className="relative inline-flex size-2 rounded-full bg-white" />
+                  </span>
+                  Live Demo
+                </Link>
+              </nav>
+            </div>
             <span className="text-xs text-zinc-500 dark:text-zinc-400">LangGraph run monitor</span>
           </div>
         </header>

@@ -52,6 +52,9 @@ class GitHubApp:
         self._api_url = api_url
         self._transport = transport
         self._tokens: dict[int, _CachedToken] = {}
+        # repo ("owner/name") → installation id. Unlike tokens these never expire;
+        # they only change if the App is uninstalled and reinstalled.
+        self._installation_ids: dict[str, int] = {}
         self._lock = asyncio.Lock()
 
     def app_jwt(self, now: float | None = None) -> str:
@@ -73,6 +76,27 @@ class GitHubApp:
             expires_at = datetime.fromisoformat(data["expires_at"]).timestamp()
             self._tokens[installation_id] = _CachedToken(data["token"], expires_at)
             return data["token"]
+
+    async def installation_id_for_repo(self, repo: str) -> int | None:
+        """Look up which installation covers *repo* ("owner/name"), or None if the App isn't on it.
+
+        Webhook-driven paths get `installation.id` handed to them by the delivery; callers the
+        user triggers directly (the demo dispatch) have no such context and start from the repo.
+        """
+        async with self._lock:
+            if repo in self._installation_ids:
+                return self._installation_ids[repo]
+
+        async with self._client(self.app_jwt()) as client:
+            response = await client.get(f"/repos/{repo}/installation")
+        if response.status_code == 404:
+            return None
+        response.raise_for_status()
+        installation_id = int(response.json()["id"])
+
+        async with self._lock:
+            self._installation_ids[repo] = installation_id
+        return installation_id
 
     async def installation_client(self, installation_id: int) -> httpx.AsyncClient:
         """API client acting as the App inside one installation. Use as `async with`."""

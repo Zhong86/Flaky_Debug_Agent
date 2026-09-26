@@ -34,6 +34,14 @@ class Settings(BaseSettings):
     github_app_private_key: SecretStr | None = None
     github_app_private_key_path: Path | None = None
 
+    # Judge-facing demo (api/routes/demo.py): manually dispatch a workflow on a
+    # separate repo and watch it live. GITHUB_TOKEN needs Actions read/write on
+    # this repo too. Empty = the demo endpoints are disabled (503).
+    demo_repo: str = ""
+    demo_workflow_file: str = "deploy.yml"
+    demo_ref: str = "main"
+    demo_log_buffer_size: int = 2000
+
     @field_validator(
         "github_app_id", "github_app_private_key", "github_app_private_key_path", mode="before"
     )
