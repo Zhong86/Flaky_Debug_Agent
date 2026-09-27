@@ -32,7 +32,7 @@ function JobList({
   onSelect: (jobId: number) => void;
 }) {
   if (jobs.length === 0) {
-    return <p className="text-sm text-zinc-500 dark:text-zinc-400">Waiting for jobs to appear…</p>;
+    return <p className="text-sm text-ink-muted">Waiting for jobs to appear…</p>;
   }
   return (
     <ul className="space-y-2">
@@ -43,19 +43,19 @@ function JobList({
             onClick={() => onSelect(job.id)}
             className={`flex w-full items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left text-sm transition-colors ${
               selectedJobId === job.id
-                ? "border-zinc-400 bg-zinc-50 dark:border-zinc-600 dark:bg-zinc-900"
-                : "border-zinc-200 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-900"
+                ? "border-accent/60 bg-surface-raised"
+                : "border-line hover:bg-surface-raised"
             }`}
           >
-            <span className="font-medium text-zinc-900 dark:text-zinc-100">{job.name}</span>
+            <span className="font-medium text-ink">{job.name}</span>
             <StatusPill status={job.status} conclusion={job.conclusion} />
           </button>
           {job.steps.length > 0 ? (
-            <ul className="mt-1 ml-3 space-y-1 border-l border-zinc-200 pl-3 dark:border-zinc-800">
+            <ul className="mt-1 ml-3 space-y-1 border-l border-line pl-3">
               {job.steps.map((step) => (
                 <li
                   key={step.number}
-                  className="flex items-center justify-between gap-3 text-xs text-zinc-500 dark:text-zinc-400"
+                  className="flex items-center justify-between gap-3 text-xs text-ink-muted"
                 >
                   <span>{step.name}</span>
                   <StatusPill status={step.status} conclusion={step.conclusion} />
@@ -129,7 +129,7 @@ export function DemoRunner() {
             type="button"
             onClick={onDispatch}
             disabled={dispatching}
-            className="rounded-md border border-transparent bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900 dark:hover:bg-zinc-300"
+            className="rounded-md border border-transparent bg-accent px-4 py-2 text-sm font-semibold text-black transition-colors hover:bg-accent-strong disabled:opacity-50"
           >
             {dispatching ? "Dispatching…" : runId ? "Run again" : "Run Deploy"}
           </button>
@@ -139,9 +139,9 @@ export function DemoRunner() {
               target="_blank"
               rel="noreferrer"
               title={`${demoConfig.repo} — ${demoConfig.workflow_file} on ${demoConfig.ref}`}
-              className="rounded-md border border-zinc-300 px-4 py-2 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-900"
+              className="rounded-md border border-line-strong px-4 py-2 text-sm font-medium text-ink-soft transition-colors hover:bg-surface-raised hover:text-ink"
             >
-              Demo repo ↗
+              Demo repo
             </a>
           ) : null}
           {run ? (
@@ -149,9 +149,9 @@ export function DemoRunner() {
               href={run.html_url}
               target="_blank"
               rel="noreferrer"
-              className="text-xs font-medium text-zinc-500 underline hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200"
+              className="text-xs font-medium text-accent underline hover:text-accent-strong"
             >
-              View on GitHub ↗
+              View on GitHub
             </a>
           ) : null}
         </div>
@@ -180,7 +180,7 @@ export function DemoRunner() {
           </div>
         </Card>
       ) : (
-        <p className="text-sm text-zinc-500 dark:text-zinc-400">
+        <p className="text-sm text-ink-muted">
           Nothing dispatched yet. Click &ldquo;Run Deploy&rdquo; to trigger deploy.yml and watch it here.
         </p>
       )}

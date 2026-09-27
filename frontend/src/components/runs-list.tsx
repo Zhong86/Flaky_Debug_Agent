@@ -25,7 +25,7 @@ function Stat({ label, value }: { label: string; value: number | string }) {
   return (
     <Card className="px-4 py-3">
       <SectionLabel>{label}</SectionLabel>
-      <p className="mt-1 text-2xl font-semibold tabular-nums text-zinc-900 dark:text-zinc-50">{value}</p>
+      <p className="mt-1 text-2xl font-semibold tabular-nums text-accent-strong">{value}</p>
     </Card>
   );
 }
@@ -38,7 +38,7 @@ export function RunsList() {
   );
 
   if (loading) {
-    return <p className="text-sm text-zinc-500 dark:text-zinc-400">Loading runs…</p>;
+    return <p className="text-sm text-ink-muted">Loading runs…</p>;
   }
 
   if (error && !data) {
@@ -93,21 +93,21 @@ export function RunsList() {
               <li key={run.thread_id}>
                 <Link
                   href={`/runs/${encodeURIComponent(run.thread_id)}`}
-                  className="block rounded-xl border border-zinc-200 bg-white p-4 transition-colors hover:border-zinc-300 hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-950 dark:hover:border-zinc-700 dark:hover:bg-zinc-900"
+                  className="block rounded-xl border border-line bg-surface p-4 transition-colors hover:border-line-strong hover:bg-surface-raised"
                 >
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-mono text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                        <span className="font-mono text-sm font-medium text-ink">
                           {run.thread_id}
                         </span>
                         <Pill tone={tone}>{label}</Pill>
                       </div>
-                      <p className="mt-1 truncate text-sm text-zinc-500 dark:text-zinc-400">
+                      <p className="mt-1 truncate text-sm text-ink-muted">
                         {repo ?? "Unknown repository"}
                       </p>
                     </div>
-                    <div className="text-right text-xs text-zinc-500 dark:text-zinc-400">
+                    <div className="text-right text-xs text-ink-muted">
                       <p>{formatTimestamp(run.updated_at)}</p>
                       <p>{formatRelative(run.updated_at)}</p>
                     </div>

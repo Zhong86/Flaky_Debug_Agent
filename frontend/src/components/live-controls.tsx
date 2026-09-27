@@ -17,11 +17,11 @@ export function LiveControls({
   intervalMs: number;
 }) {
   return (
-    <div className="flex items-center gap-3 text-xs text-zinc-500 dark:text-zinc-400">
+    <div className="flex items-center gap-3 text-xs text-ink-muted">
       <span className="flex items-center gap-1.5">
         <span
           className={`h-2 w-2 rounded-full ${
-            live ? "animate-pulse bg-green-500" : "bg-zinc-400 dark:bg-zinc-600"
+            live ? "animate-pulse bg-green-500" : "bg-ink-faint"
           }`}
           aria-hidden
         />
@@ -31,14 +31,14 @@ export function LiveControls({
       <button
         type="button"
         onClick={onToggleLive}
-        className="rounded-md border border-zinc-300 px-2 py-1 font-medium transition-colors hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800"
+        className="rounded-md border border-line-strong px-2 py-1 font-medium transition-colors hover:bg-surface-raised hover:text-ink"
       >
         {live ? "Pause" : "Resume"}
       </button>
       <button
         type="button"
         onClick={onRefresh}
-        className="rounded-md border border-zinc-300 px-2 py-1 font-medium transition-colors hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800"
+        className="rounded-md border border-line-strong px-2 py-1 font-medium transition-colors hover:bg-surface-raised hover:text-ink"
       >
         Refresh
       </button>

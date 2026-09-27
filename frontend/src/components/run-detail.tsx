@@ -67,7 +67,7 @@ function RunSummaryPanel({
           {reruns.length ? (
             <RerunResultsTable results={reruns} />
           ) : (
-            <p className="text-sm text-zinc-500 dark:text-zinc-400">No rerun results in state yet.</p>
+            <p className="text-sm text-ink-muted">No rerun results in state yet.</p>
           )}
         </div>
       </Card>
@@ -136,38 +136,38 @@ function TimelineEntry({ step, previous }: { step: RunStep; previous: RunStep | 
     <li className="relative pl-8">
       {/* Timeline rail + dot */}
       <span
-        className="absolute top-3 left-[9px] h-full w-px bg-zinc-200 last:hidden dark:bg-zinc-800"
+        className="absolute top-3 left-[9px] h-full w-px bg-line last:hidden"
         aria-hidden
       />
       <span
-        className={`absolute top-2.5 left-1.5 h-2.5 w-2.5 rounded-full ring-4 ring-white dark:ring-zinc-950 ${DOT_CLASSES[stepTone(step)]}`}
+        className={`absolute top-2.5 left-1.5 h-2.5 w-2.5 rounded-full ring-4 ring-black ${DOT_CLASSES[stepTone(step)]}`}
         aria-hidden
       />
 
       <Card className="p-4">
         <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
           <div className="flex flex-wrap items-baseline gap-2">
-            <h3 className="font-medium text-zinc-900 dark:text-zinc-100">
+            <h3 className="font-medium text-ink">
               {isBookkeeping && step.step < 0 ? "Run created" : nodeLabel(step.node)}
             </h3>
             {step.node && step.node !== "__start__" ? (
-              <span className="font-mono text-xs text-zinc-400 dark:text-zinc-500">{step.node}</span>
+              <span className="font-mono text-xs text-ink-faint">{step.node}</span>
             ) : null}
           </div>
-          <div className="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
+          <div className="flex items-center gap-2 text-xs text-ink-muted">
             <span>step {step.step}</span>
             {duration ? <span className="tabular-nums">· {duration}</span> : null}
             <span>· {formatTimestamp(step.created_at)}</span>
           </div>
         </div>
 
-        {meta?.blurb ? <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">{meta.blurb}</p> : null}
+        {meta?.blurb ? <p className="mt-0.5 text-xs text-ink-muted">{meta.blurb}</p> : null}
 
         {entries.length > 0 ? (
           <dl className="mt-3 space-y-3">
             {entries.map(([key, value]) => (
               <div key={key}>
-                <dt className="text-xs font-semibold tracking-wide text-zinc-500 uppercase dark:text-zinc-500">
+                <dt className="text-xs font-semibold tracking-wide text-ink-faint uppercase">
                   {stateKeyLabel(key)}
                 </dt>
                 <dd className="mt-1">
@@ -181,13 +181,13 @@ function TimelineEntry({ step, previous }: { step: RunStep; previous: RunStep | 
             ))}
           </dl>
         ) : (
-          <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
+          <p className="mt-2 text-sm text-ink-muted">
             {isBookkeeping ? "Checkpoint written before the first node ran." : "Wrote no new state."}
           </p>
         )}
 
         <details className="group mt-3">
-          <summary className="cursor-pointer text-xs font-medium text-zinc-500 hover:text-zinc-800 dark:text-zinc-400 dark:hover:text-zinc-200">
+          <summary className="cursor-pointer text-xs font-medium text-ink-muted hover:text-ink">
             Full state at this step
           </summary>
           <div className="mt-2">
@@ -207,7 +207,7 @@ export function RunDetail({ threadId }: { threadId: string }) {
   );
 
   if (loading) {
-    return <p className="text-sm text-zinc-500 dark:text-zinc-400">Loading run…</p>;
+    return <p className="text-sm text-ink-muted">Loading run…</p>;
   }
 
   if (error && !data) {
@@ -215,7 +215,7 @@ export function RunDetail({ threadId }: { threadId: string }) {
       return (
         <EmptyState title={`No run found for ${threadId}`}>
           Either the thread_id is wrong or the graph never checkpointed under it.{" "}
-          <Link href="/" className="underline">
+          <Link href="/runs" className="text-accent underline hover:text-accent-strong">
             Back to all runs
           </Link>
         </EmptyState>
@@ -238,13 +238,13 @@ export function RunDetail({ threadId }: { threadId: string }) {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <Link
-            href="/"
-            className="text-xs font-medium text-zinc-500 transition-colors hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+            href="/runs"
+            className="text-xs font-medium text-ink-muted transition-colors hover:text-accent-strong"
           >
-            ← All runs
+            Back to runs
           </Link>
-          <h1 className="mt-1 font-mono text-xl font-semibold text-zinc-900 dark:text-zinc-50">{threadId}</h1>
-          <p className="text-sm text-zinc-500 dark:text-zinc-400">{repo ?? "Unknown repository"}</p>
+          <h1 className="mt-1 font-mono text-xl font-semibold text-ink">{threadId}</h1>
+          <p className="text-sm text-ink-muted">{repo ?? "Unknown repository"}</p>
         </div>
         <LiveControls
           live={live}
@@ -272,7 +272,7 @@ export function RunDetail({ threadId }: { threadId: string }) {
       <div>
         <SectionLabel>Node timeline</SectionLabel>
         {steps.length === 0 ? (
-          <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">No checkpoints recorded.</p>
+          <p className="mt-2 text-sm text-ink-muted">No checkpoints recorded.</p>
         ) : (
           <ol className="mt-3 space-y-3">
             {steps.map((step, i) => (

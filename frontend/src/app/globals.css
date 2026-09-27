@@ -1,25 +1,34 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+/* The site is always dark (black-green): `dark:` follows the `dark` class on <html>
+   instead of the OS setting, so every component renders its dark variant. */
+@custom-variant dark (&:where(.dark, .dark *));
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/* Black-green palette. Status pills (components/ui.tsx TONE_CLASSES) keep their own
+   green/orange/red/zinc colours and are deliberately not built from these tokens. */
+@theme {
+  --color-surface-sunken: #030805;
+  --color-surface: #07110b;
+  --color-surface-raised: #0c1a12;
+  --color-line: #1a2e22;
+  --color-line-strong: #2a4a36;
+  --color-ink: #e6f4ea;
+  --color-ink-soft: #bcd5c4;
+  --color-ink-muted: #86a893;
+  --color-ink-faint: #5b7a66;
+  --color-accent: #22c55e;
+  --color-accent-strong: #4ade80;
+}
+
+:root {
+  color-scheme: dark;
 }
 
 body {
-  color: var(--foreground);
   font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
 }

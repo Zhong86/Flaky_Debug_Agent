@@ -28,25 +28,25 @@ function InlineMarkdown({ text }: { text: string }) {
 function MarkdownBody({ content }: { content: string }) {
   const lines = content.split("\n");
   return (
-    <div className="space-y-2 text-sm leading-relaxed text-zinc-700 dark:text-zinc-300">
+    <div className="space-y-2 text-sm leading-relaxed text-ink-soft">
       {lines.map((line, i) => {
         if (line.startsWith("### ")) {
           return (
-            <h3 key={i} className="mt-3 text-sm font-semibold text-zinc-900 dark:text-zinc-100">
+            <h3 key={i} className="mt-3 text-sm font-semibold text-ink">
               <InlineMarkdown text={line.slice(4)} />
             </h3>
           );
         }
         if (line.startsWith("## ")) {
           return (
-            <h2 key={i} className="mt-4 text-base font-semibold text-zinc-900 dark:text-zinc-100">
+            <h2 key={i} className="mt-4 text-base font-semibold text-ink">
               <InlineMarkdown text={line.slice(3)} />
             </h2>
           );
         }
         if (line.startsWith("# ")) {
           return (
-            <h1 key={i} className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
+            <h1 key={i} className="text-lg font-semibold text-ink">
               <InlineMarkdown text={line.slice(2)} />
             </h1>
           );
@@ -109,7 +109,7 @@ export function ReportViewer({ threadId, documentPath }: { threadId: string; doc
       <button
         type="button"
         onClick={show}
-        className="cursor-pointer rounded text-left underline decoration-dotted underline-offset-2 hover:decoration-solid"
+        className="cursor-pointer rounded text-left text-accent underline decoration-dotted underline-offset-2 hover:text-accent-strong hover:decoration-solid"
       >
         <Mono>{documentPath}</Mono>
       </button>
@@ -123,21 +123,21 @@ export function ReportViewer({ threadId, documentPath }: { threadId: string; doc
             onClick={() => setOpen(false)}
           />
           <div
-            className="absolute top-0 right-0 flex h-full w-full max-w-xl flex-col border-l border-zinc-200 bg-white shadow-xl transition-transform duration-300 ease-out dark:border-zinc-800 dark:bg-zinc-950"
+            className="absolute top-0 right-0 flex h-full w-full max-w-xl flex-col border-l border-line bg-surface shadow-xl transition-transform duration-300 ease-out"
             style={{ transform: open ? "translateX(0)" : "translateX(100%)" }}
           >
-            <div className="flex items-center justify-between gap-3 border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
-              <p className="truncate font-mono text-xs text-zinc-500 dark:text-zinc-400">{documentPath}</p>
+            <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-3">
+              <p className="truncate font-mono text-xs text-ink-muted">{documentPath}</p>
               <button
                 type="button"
                 onClick={() => setOpen(false)}
-                className="rounded px-2 py-1 text-xs font-medium text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+                className="rounded px-2 py-1 text-xs font-medium text-ink-muted hover:bg-surface-raised hover:text-ink"
               >
                 Close
               </button>
             </div>
             <div className="overflow-auto p-4">
-              {loading ? <p className="text-sm text-zinc-500 dark:text-zinc-400">Loading report…</p> : null}
+              {loading ? <p className="text-sm text-ink-muted">Loading report…</p> : null}
               {error ? (
                 <p className="text-sm text-red-600 dark:text-red-400">
                   {error instanceof ApiError && error.status === 404

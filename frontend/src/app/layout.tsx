@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import Link from "next/link";
+import { NavLink } from "@/components/nav-link";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -22,16 +23,17 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`dark ${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="flex min-h-full flex-col bg-zinc-50 dark:bg-zinc-950">
-        <header className="border-b border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
+      <body className="flex min-h-full flex-col bg-black text-ink">
+        <header className="border-b border-line bg-surface">
           <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-4">
-            <div className="flex items-center gap-4">
-              <Link href="/" className="font-semibold text-zinc-900 dark:text-zinc-50">
+            <div className="flex items-center gap-5">
+              <Link href="/" className="font-semibold text-ink transition-colors hover:text-accent-strong">
                 Flaky Debug Agent
               </Link>
-              <nav className="flex items-center gap-3 text-sm">
+              <nav className="flex items-center gap-4 text-sm">
+                <NavLink href="/runs">Runs</NavLink>
                 <Link
                   href="/demo"
                   className="inline-flex items-center gap-2 rounded-full bg-emerald-600 px-3.5 py-1.5 font-medium text-white shadow-sm ring-1 ring-emerald-700/20 transition-colors hover:bg-emerald-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600 dark:bg-emerald-500 dark:ring-emerald-400/30 dark:hover:bg-emerald-400 dark:hover:text-zinc-950"
@@ -44,7 +46,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
                 </Link>
               </nav>
             </div>
-            <span className="text-xs text-zinc-500 dark:text-zinc-400">LangGraph run monitor</span>
+            <span className="text-xs text-ink-faint">LangGraph run monitor</span>
           </div>
         </header>
         <main className="mx-auto w-full max-w-5xl flex-1 px-6 py-8">{children}</main>

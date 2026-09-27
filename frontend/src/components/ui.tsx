@@ -47,9 +47,7 @@ export function Verdict({
 
 export function Card({ className = "", children }: { className?: string; children: ReactNode }) {
   return (
-    <div
-      className={`rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950 ${className}`}
-    >
+    <div className={`rounded-xl border border-line bg-surface ${className}`}>
       {children}
     </div>
   );
@@ -57,7 +55,7 @@ export function Card({ className = "", children }: { className?: string; childre
 
 export function Mono({ children }: { children: ReactNode }) {
   return (
-    <code className="rounded bg-zinc-100 px-1.5 py-0.5 font-mono text-[0.85em] break-all text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+    <code className="rounded bg-surface-raised px-1.5 py-0.5 font-mono text-[0.85em] break-all text-ink-soft">
       {children}
     </code>
   );
@@ -65,7 +63,7 @@ export function Mono({ children }: { children: ReactNode }) {
 
 export function SectionLabel({ children }: { children: ReactNode }) {
   return (
-    <h3 className="text-xs font-semibold tracking-wide text-zinc-500 uppercase dark:text-zinc-500">
+    <h3 className="text-xs font-semibold tracking-wide text-ink-faint uppercase">
       {children}
     </h3>
   );
@@ -83,8 +81,8 @@ export function ErrorBanner({ error, hint }: { error: Error; hint?: string }) {
 export function EmptyState({ title, children }: { title: string; children?: ReactNode }) {
   return (
     <Card className="p-10 text-center">
-      <p className="font-medium text-zinc-900 dark:text-zinc-100">{title}</p>
-      {children ? <div className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">{children}</div> : null}
+      <p className="font-medium text-ink">{title}</p>
+      {children ? <div className="mt-2 text-sm text-ink-muted">{children}</div> : null}
     </Card>
   );
 }
@@ -92,7 +90,7 @@ export function EmptyState({ title, children }: { title: string; children?: Reac
 /** Long strings (logs, findings, JSON) in a scroll-capped preformatted block. */
 export function CodeBlock({ children }: { children: string }) {
   return (
-    <pre className="max-h-80 overflow-auto rounded-lg bg-zinc-50 p-3 font-mono text-xs leading-relaxed whitespace-pre-wrap text-zinc-700 ring-1 ring-zinc-200 ring-inset dark:bg-zinc-900 dark:text-zinc-300 dark:ring-zinc-800">
+    <pre className="max-h-80 overflow-auto rounded-lg bg-surface-sunken p-3 font-mono text-xs leading-relaxed whitespace-pre-wrap text-ink-soft ring-1 ring-line ring-inset">
       {children}
     </pre>
   );

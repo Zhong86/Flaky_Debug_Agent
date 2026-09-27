@@ -8,7 +8,7 @@ export function RerunResultsTable({ results }: { results: RerunResult[] }) {
     <div className="overflow-x-auto">
       <table className="w-full min-w-md text-left text-sm">
         <thead>
-          <tr className="border-b border-zinc-200 text-xs tracking-wide text-zinc-500 uppercase dark:border-zinc-800">
+          <tr className="border-b border-line text-xs tracking-wide text-ink-faint uppercase">
             <th className="py-2 pr-4 font-semibold">Test</th>
             <th className="py-2 pr-4 font-semibold">Attempts</th>
             <th className="py-2 pr-4 font-semibold">Passed</th>
@@ -16,13 +16,13 @@ export function RerunResultsTable({ results }: { results: RerunResult[] }) {
             <th className="py-2 font-semibold">Verdict</th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800/80">
+        <tbody className="divide-y divide-line">
           {results.map((result) => (
             <tr key={result.test_id}>
-              <td className="py-2 pr-4 font-mono text-xs break-all text-zinc-800 dark:text-zinc-200">
+              <td className="py-2 pr-4 font-mono text-xs break-all text-ink">
                 {result.test_id}
               </td>
-              <td className="py-2 pr-4 tabular-nums text-zinc-600 dark:text-zinc-400">{result.attempts}</td>
+              <td className="py-2 pr-4 tabular-nums text-ink-muted">{result.attempts}</td>
               <td className="py-2 pr-4 tabular-nums text-green-600 dark:text-green-400">{result.passed}</td>
               <td className="py-2 pr-4 tabular-nums text-red-600 dark:text-red-400">{result.failed}</td>
               <td className="py-2">
@@ -68,7 +68,7 @@ export function StateValue({ name, value }: { name: string; value: unknown }) {
   }
 
   if (typeof value === "number") {
-    return <span className="tabular-nums text-zinc-800 dark:text-zinc-200">{value}</span>;
+    return <span className="tabular-nums text-ink">{value}</span>;
   }
 
   if (typeof value === "string") {
@@ -86,7 +86,7 @@ export function StateValue({ name, value }: { name: string; value: unknown }) {
     if (name === "document" || name === "repo_path" || name === "callback_url") {
       return <Mono>{value}</Mono>;
     }
-    return <p className="text-sm leading-relaxed text-zinc-700 dark:text-zinc-300">{value}</p>;
+    return <p className="text-sm leading-relaxed text-ink-soft">{value}</p>;
   }
 
   if (value === null || value === undefined) return <Pill tone="zinc">Not set</Pill>;
